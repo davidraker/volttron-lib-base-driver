@@ -156,6 +156,8 @@ to set values for each point to revert to.
 import abc
 import logging
 
+from volttron.utils import get_module, get_subclasses
+
 _log = logging.getLogger(__name__)
 
 
@@ -435,6 +437,26 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
                 results[path + '/' + point_name] = repr(e)
 
         return results
+
+    @classmethod
+    def get_interface_subclass(cls, driver_type, module=None):
+        """Get Interface SubClass
+        Returns the subclass of this class in the module located from driver configuration or from the interface name.
+        """
+        module_name = module if module is not None else f"volttron.driver.interfaces.{driver_type}.{driver_type}"
+        module = get_module(module_name)
+        subclasses = get_subclasses(module, cls)
+        return subclasses[0]
+
+    @classmethod
+    def unique_controller_id(cls, config_name: str, config: dict) -> tuple:
+        """Unique Controller ID
+        Subclasses should use this class method to return a hashable identifier which uniquely identifies a single
+         controller -- e.g., if multiple controllers may exist at a single IP address, but on different ports,
+         the unique ID might be the tuple: (ip_address, port).
+        The base class returns the name of the device configuration file, requiring a separate DriverAgent for each.
+        """
+        return config_name,
 
 
 class RevertTracker:
