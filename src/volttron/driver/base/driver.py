@@ -80,7 +80,8 @@ class DriverAgent(BasicAgent):
         self.equipment = WeakSet()
         self.heart_beat_value = 0
 
-        self.breadth_first_publishes, self.depth_first_publishes = setup_publishes(self.config, self.parent.config)
+        # TODO: Replace Nones with setup_publishes when DriverAgentConfig is done in Pydantic
+        self.breadth_first_publishes, self.depth_first_publishes = None, None  # setup_publishes(self.config, self.parent.config)
 
         ######## TODO: Handle this block with Poll Scheduler. #############
         # try:
@@ -157,13 +158,12 @@ class DriverAgent(BasicAgent):
 
         :raises ValueError: Raises ValueError if no subclasses are found.
         """
-        klass = BaseInterface.get_interface_subclass(driver_config, driver_type)
+        klass = BaseInterface.get_interface_subclass(driver_type)
         _log.debug(f"Instantiating driver: {klass}")
-        interface = klass(vip=self.vip, core=self.core, device_path=self.device_path)
+        interface = klass(vip=self.vip, core=self.core) #, device_path=self.device_path)
 
         _log.debug(f"Configuring driver with this configuration: {driver_config}")
         interface.configure(driver_config, registry_config)
-
         return cast(BaseInterface, interface)
 
     @Core.receiver('onstart')
@@ -171,15 +171,14 @@ class DriverAgent(BasicAgent):
         self.setup_device()
         # self._setup_periodic(initial_setup=True) # TODO: Handle with Poll Scheduler.
         # TODO: If these paths are still useful, add instance variables in the constructor.
-        self.all_path_depth, self.all_path_breadth = self.get_paths_for_point(DRIVER_TOPIC_ALL)
+        # self.all_path_depth, self.all_path_breadth = self.get_paths_for_point(DRIVER_TOPIC_ALL)
 
     def setup_device(self):
         # TODO: Make Pydantic configurations for this.
         config = self.config
-        driver_config = config["driver_config"]
+        driver_config = config.get('controller_config', config.get('driver_config', {}))
         driver_type = config["driver_type"]
         registry_config = config.get("registry_config")
-
         self.heart_beat_point = config.get("heart_beat_point")
 
         try:
@@ -225,84 +224,84 @@ class DriverAgent(BasicAgent):
 
         # self.parent.device_startup_callback(self.device_name, self)
 
-    def periodic_read(self, now):
-        #we not use self.core.schedule to prevent drift.
-        next_scrape_time = now + datetime.timedelta(seconds=self.interval)
-        # Sanity check now.
-        # This is specifically for when this is running in a VM that gets
-        # suspended and then resumed.
-        # If we don't make this check a resumed VM will publish one event
-        # per minute of
-        # time the VM was suspended for.
-        # TODO: How much of this will be handled by Poll Scheduler and how much remains here?
-        test_now = get_aware_utc_now()
-        if test_now - next_scrape_time > datetime.timedelta(seconds=self.interval):
-            next_scrape_time = self.find_starting_datetime(test_now)
-
-        _log.debug("{} next scrape scheduled: {}".format(self.device_path, next_scrape_time))
-
-        self.periodic_read_event = self.core.schedule(next_scrape_time, self.periodic_read,
-                                                      next_scrape_time)
-
-        _log.debug("scraping device: " + self.device_name)
-
-        if self.parent.scalability_test:
-            self.parent.scalability_test.poll_starting(self.device_name)
-
-        try:
-            # TODO: Will need to be changed to get_multiple().
-            results = self.interface.scrape_all()
-            register_names = self.interface.get_register_names_view()
-            for point in (register_names - results.keys()):
-                depth_first_topic = self.base_topic(point=point)
-                _log.error("Failed to scrape point: " + depth_first_topic)
-        except (Exception, gevent.Timeout) as ex:
-            tb = traceback.format_exc()
-            _log.error('Failed to scrape ' + self.device_name + ':\n' + tb)
-            return
-
-        # XXX: Does a warning need to be printed?
-        if not results:
-            return
-
-        utcnow = get_aware_utc_now()
-        utcnow_string = format_timestamp(utcnow)
-        sync_timestamp = format_timestamp(now - datetime.timedelta(seconds=self.time_slot_offset))
-
-        headers = {
-            headers_mod.DATE: utcnow_string,
-            headers_mod.TIMESTAMP: utcnow_string,
-            headers_mod.SYNC_TIMESTAMP: sync_timestamp
-        }
-
-        if PublishFormat.Single in self.depth_first_publishes or PublishFormat.Single in self.breadth_first_publishes:
-            for point, value in results.items():
-                depth_first_topic, breadth_first_topic = self.get_paths_for_point(point)
-                message = [value, self.meta_data[point]]
-
-                if PublishFormat.Single in self.depth_first_publishes:
-                    self._publish_wrapper(depth_first_topic, headers=headers, message=message)
-
-                if PublishFormat.Single in self.breadth_first_publishes:
-                    self._publish_wrapper(breadth_first_topic, headers=headers, message=message)
-
-        # TODO: Need to find any-type topics here:
-        message = [results, self.meta_data]
-        if PublishFormat.Any in self.depth_first_publishes:
-            self._publish_wrapper(self.any_path_depth, headers=headers, message=message)
-
-        if PublishFormat.Any in self.breadth_first_publishes:
-            self._publish_wrapper(self.any_path_breadth, headers=headers, message=message)
-
-        # TODO: Include last values in message before all publishes.
-        if PublishFormat.All in self.depth_first_publishes:
-            self._publish_wrapper(self.all_path_depth, headers=headers, message=message)
-
-        if PublishFormat.All in self.breadth_first_publishes:
-            self._publish_wrapper(self.all_path_breadth, headers=headers, message=message)
-
-        if self.parent.scalability_test:
-            self.parent.scalability_test.poll_ending(self.device_name)
+    # def periodic_read(self, now):
+    #     #we not use self.core.schedule to prevent drift.
+    #     next_scrape_time = now + datetime.timedelta(seconds=self.interval)
+    #     # Sanity check now.
+    #     # This is specifically for when this is running in a VM that gets
+    #     # suspended and then resumed.
+    #     # If we don't make this check a resumed VM will publish one event
+    #     # per minute of
+    #     # time the VM was suspended for.
+    #     # TODO: How much of this will be handled by Poll Scheduler and how much remains here?
+    #     test_now = get_aware_utc_now()
+    #     if test_now - next_scrape_time > datetime.timedelta(seconds=self.interval):
+    #         next_scrape_time = self.find_starting_datetime(test_now)
+    #
+    #     _log.debug("{} next scrape scheduled: {}".format(self.device_path, next_scrape_time))
+    #
+    #     self.periodic_read_event = self.core.schedule(next_scrape_time, self.periodic_read,
+    #                                                   next_scrape_time)
+    #
+    #     _log.debug("scraping device: " + self.device_name)
+    #
+    #     if self.parent.scalability_test:
+    #         self.parent.scalability_test.poll_starting(self.device_name)
+    #
+    #     try:
+    #         # TODO: Will need to be changed to get_multiple().
+    #         results = self.interface.scrape_all()
+    #         register_names = self.interface.get_register_names_view()
+    #         for point in (register_names - results.keys()):
+    #             depth_first_topic = self.base_topic(point=point)
+    #             _log.error("Failed to scrape point: " + depth_first_topic)
+    #     except (Exception, gevent.Timeout) as ex:
+    #         tb = traceback.format_exc()
+    #         _log.error('Failed to scrape ' + self.device_name + ':\n' + tb)
+    #         return
+    #
+    #     # XXX: Does a warning need to be printed?
+    #     if not results:
+    #         return
+    #
+    #     utcnow = get_aware_utc_now()
+    #     utcnow_string = format_timestamp(utcnow)
+    #     sync_timestamp = format_timestamp(now - datetime.timedelta(seconds=self.time_slot_offset))
+    #
+    #     headers = {
+    #         headers_mod.DATE: utcnow_string,
+    #         headers_mod.TIMESTAMP: utcnow_string,
+    #         headers_mod.SYNC_TIMESTAMP: sync_timestamp
+    #     }
+    #
+    #     if PublishFormat.Single in self.depth_first_publishes or PublishFormat.Single in self.breadth_first_publishes:
+    #         for point, value in results.items():
+    #             depth_first_topic, breadth_first_topic = self.get_paths_for_point(point)
+    #             message = [value, self.meta_data[point]]
+    #
+    #             if PublishFormat.Single in self.depth_first_publishes:
+    #                 self._publish_wrapper(depth_first_topic, headers=headers, message=message)
+    #
+    #             if PublishFormat.Single in self.breadth_first_publishes:
+    #                 self._publish_wrapper(breadth_first_topic, headers=headers, message=message)
+    #
+    #     # TODO: Need to find any-type topics here:
+    #     message = [results, self.meta_data]
+    #     if PublishFormat.Any in self.depth_first_publishes:
+    #         self._publish_wrapper(self.any_path_depth, headers=headers, message=message)
+    #
+    #     if PublishFormat.Any in self.breadth_first_publishes:
+    #         self._publish_wrapper(self.any_path_breadth, headers=headers, message=message)
+    #
+    #     # TODO: Include last values in message before all publishes.
+    #     if PublishFormat.All in self.depth_first_publishes:
+    #         self._publish_wrapper(self.all_path_depth, headers=headers, message=message)
+    #
+    #     if PublishFormat.All in self.breadth_first_publishes:
+    #         self._publish_wrapper(self.all_path_breadth, headers=headers, message=message)
+    #
+    #     if self.parent.scalability_test:
+    #         self.parent.scalability_test.poll_ending(self.device_name)
 
     def _publish_wrapper(self, topic, headers, message):
         while True:
@@ -340,16 +339,16 @@ class DriverAgent(BasicAgent):
     #  (b) need to handle any publishes
     #  (c) breadth topics should by default have "points/" as root topic.
     #  (d) topic roots should be configurable at the agent level.
-    def get_paths_for_point(self, point):
-        depth_first = self.base_topic(point=point)
-
-        parts = depth_first.split('/')
-        breadth_first_parts = parts[1:]
-        breadth_first_parts.reverse()
-        breadth_first_parts = [DRIVER_TOPIC_BASE] + breadth_first_parts
-        breadth_first = '/'.join(breadth_first_parts)
-
-        return depth_first, breadth_first
+    # def get_paths_for_point(self, point):
+    #     depth_first = self.base_topic(point=point)
+    #
+    #     parts = depth_first.split('/')
+    #     breadth_first_parts = parts[1:]
+    #     breadth_first_parts.reverse()
+    #     breadth_first_parts = [DRIVER_TOPIC_BASE] + breadth_first_parts
+    #     breadth_first = '/'.join(breadth_first_parts)
+    #
+    #     return depth_first, breadth_first
 
     def get_point(self, point_name, **kwargs):
         return self.interface.get_point(point_name, **kwargs)

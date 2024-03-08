@@ -5,8 +5,11 @@ class PublishFormat(Flag):
     Any = auto()
     Single = auto()
 
-
+# TODO: hasattr() will be necessary when the DriverAgentConfig is Pydantic based and not a dict.
+# TODO: Can this be simplified if publish_type flags are not needed in agent-level?
 def setup_publishes(config, parent_config=None):
+    if not hasattr(config, 'config_version'):
+        config.config_version = parent_config.config_version if hasattr(parent_config, 'config_version') else 1
     config_version = config.config_version
     # NOTE: The agent configurations have defaults for all parameters, whereas the controller configs do not.
     #  This will prevent any parameter from being None if there is not a parent_config.
