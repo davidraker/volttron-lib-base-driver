@@ -11,7 +11,7 @@ def setup_publishes(config, parent_config=None):
     if not hasattr(config, 'config_version'):
         config.config_version = parent_config.config_version if hasattr(parent_config, 'config_version') else 1
     config_version = config.config_version
-    # NOTE: The agent configurations have defaults for all parameters, whereas the controller configs do not.
+    # NOTE: The agent configurations have defaults for all parameters, whereas the remote configs do not.
     #  This will prevent any parameter from being None if there is not a parent_config.
     breadth_first_all = config.publish_breadth_first_all if config.publish_breadth_first_all is not None \
         else PublishFormat.All in parent_config.breadth_first_publishes

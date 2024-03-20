@@ -176,7 +176,7 @@ class DriverAgent(BasicAgent):
     def setup_device(self):
         # TODO: Make Pydantic configurations for this.
         config = self.config
-        driver_config = config.get('controller_config', config.get('driver_config', {}))
+        driver_config = config.get('remote_config', config.get('driver_config', {}))
         driver_type = config["driver_type"]
         registry_config = config.get("registry_config")
         self.heart_beat_point = config.get("heart_beat_point")
@@ -335,7 +335,7 @@ class DriverAgent(BasicAgent):
         self.set_point(self.heart_beat_point, self.heart_beat_value)
 
     # TODO: This is problematic now, since:
-    #  (a) topics are not unique in controller,
+    #  (a) topics are not unique in remote,
     #  (b) need to handle any publishes
     #  (c) breadth topics should by default have "points/" as root topic.
     #  (d) topic roots should be configurable at the agent level.
@@ -409,7 +409,7 @@ class DriverAgent(BasicAgent):
 
     ##### NEW METHODS TO SUPPORT DRIVER SERVICE #####
     def add_equipment(self, device_node):  # New addition, no conflict.
-        # TODO: Is logic needed for scheduling or any other purpose on adding equipment to this controller?
+        # TODO: Is logic needed for scheduling or any other purpose on adding equipment to this remote?
         self.equipment.add(device_node)
 
     @property

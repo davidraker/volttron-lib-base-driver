@@ -449,10 +449,10 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return subclasses[0]
 
     @classmethod
-    def unique_controller_id(cls, config_name: str, config: dict) -> tuple:
-        """Unique Controller ID
+    def unique_remote_id(cls, config_name: str, config: dict) -> tuple:
+        """Unique Remote ID
         Subclasses should use this class method to return a hashable identifier which uniquely identifies a single
-         controller -- e.g., if multiple controllers may exist at a single IP address, but on different ports,
+         remote -- e.g., if multiple remotes may exist at a single IP address, but on different ports,
          the unique ID might be the tuple: (ip_address, port).
         The base class returns the name of the device configuration file, requiring a separate DriverAgent for each.
         """
