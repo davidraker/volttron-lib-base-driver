@@ -55,30 +55,20 @@ class DriverAgent(BasicAgent):
     def __init__(self,
                  parent,
                  config,
-                 # TODO: Make polling and grouping parameters all optional and/or keyword only.
-                 # time_slot, # Deprecated: Use poll scheduler.
-                 # driver_scrape_interval, # Deprecated: Use poll scheduler.
-                 # device_path,  # TODO: Does this parameter make sense in context of driver service?
-                 # group, # Deprecated: Use poll scheduler.
-                 # group_offset_interval, # Deprecated: Use poll scheduler.
-                 # TODO: Deprecated. We can get these from parent.config.
-                 # default_publish_depth_first_all=False,
-                 # default_publish_breadth_first_all=False,
-                 # default_publish_depth_first=False,
-                 # default_publish_breadth_first=False,
-                 # New parameters to support Driver Service:
                  unique_id=None,
                  ** kwargs):
         super(DriverAgent, self).__init__(**kwargs)
         self.config = config
-        # self.device_path = device_path
         self.parent = parent
         self.unique_id = unique_id
         self.vip = parent.vip
 
         self.device_name = ''
         self.equipment = WeakSet()
+        self.heart_beat_point = None
         self.heart_beat_value = 0
+        self.interface = None
+        self.meta_data = {}
 
         # TODO: Replace Nones with setup_publishes when DriverAgentConfig is done in Pydantic
         self.breadth_first_publishes, self.depth_first_publishes = None, None  # setup_publishes(self.config, self.parent.config)
@@ -142,52 +132,16 @@ class DriverAgent(BasicAgent):
         from_midnight = datetime.timedelta(seconds=next_in_seconds)
         return midnight + from_midnight + datetime.timedelta(seconds=self.time_slot_offset)
 
-    def get_interface(self, driver_type: str, driver_config: dict,
-                      registry_config: list) -> BaseInterface:
-        """Returns an instance of the interface
-
-        :param driver_type: The name of the driver
-        :type driver_type: str
-        :param driver_config: The configuration of the driver
-        :type driver_config: dict
-        :param registry_config: A list of registry points reprsented as dictionaries
-        :type registry_config: list
-
-        :return: Returns an instance of a Driver that is a subclass of BaseInterface
-        :rtype: BaseInterface
-
-        :raises ValueError: Raises ValueError if no subclasses are found.
+    def add_registers(self, registry_config: list[dict], base_topic: str):
         """
-        klass = BaseInterface.get_interface_subclass(driver_type)
-        _log.debug(f"Instantiating driver: {klass}")
-        interface = klass(vip=self.vip, core=self.core) #, device_path=self.device_path)
+        Configure a set of registers on this remote.
 
-        _log.debug(f"Configuring driver with this configuration: {driver_config}")
-        interface.configure(driver_config, registry_config)
-        return cast(BaseInterface, interface)
-
-    @Core.receiver('onstart')
-    def starting(self, sender, **kwargs):
-        self.setup_device()
-        # self._setup_periodic(initial_setup=True) # TODO: Handle with Poll Scheduler.
-        # TODO: If these paths are still useful, add instance variables in the constructor.
-        # self.all_path_depth, self.all_path_breadth = self.get_paths_for_point(DRIVER_TOPIC_ALL)
-
-    def setup_device(self):
-        # TODO: Make Pydantic configurations for this.
-        config = self.config
-        driver_config = config.get('remote_config', config.get('driver_config', {}))
-        driver_type = config["driver_type"]
-        registry_config = config.get("registry_config")
-        self.heart_beat_point = config.get("heart_beat_point")
-
-        try:
-            self.interface = self.get_interface(driver_type, driver_config, registry_config)
-        except ValueError as e:
-            _log.error(f"Failed to setup device: {e}")
-            raise e
-
-        self.meta_data = {}
+        :param registry_config: A list of registry points represented as dictionaries
+        :param base_topic: The portion of the topic shared by all points in this registry.
+        """
+        registers = self.interface.create_registers(registry_config)
+        for register in registers:
+            self.interface.insert_register(register, base_topic)
 
         for point in self.interface.get_register_names():
             register = self.interface.get_register_by_name(point)
@@ -204,25 +158,49 @@ class DriverAgent(BasicAgent):
             self.meta_data[point] = {
                 'units': register.get_units(),
                 'type': ts_type,
-                'tz': config.get('timezone', '')
+                'tz': self.config.get('timezone', '')
             }
 
-        # TODO: Commented because topic information needs to come from the equipment node. (Not unique here, anymore).
-        # self.base_topic = DEVICES_VALUE(campus='',
-        #                                 building='',
-        #                                 unit='',
-        #                                 path=self.device_path,
-        #                                 point=None)
-        #
-        # self.device_name = DEVICES_PATH(base='',
-        #                                 node='',
-        #                                 campus='',
-        #                                 building='',
-        #                                 unit='',
-        #                                 path=self.device_path,
-        #                                 point='')
+    def get_interface(self, driver_type: str, driver_config: dict) -> BaseInterface:
+        """Returns an instance of the interface
 
-        # self.parent.device_startup_callback(self.device_name, self)
+        :param driver_type: The name of the driver
+        :type driver_type: str
+        :param driver_config: The configuration of the driver
+        :type driver_config: dict
+
+        :return: Returns an instance of a Driver that is a subclass of BaseInterface
+        :rtype: BaseInterface
+
+        :raises ValueError: Raises ValueError if no subclasses are found.
+        """
+        klass = BaseInterface.get_interface_subclass(driver_type)
+        _log.debug(f"Instantiating driver: {klass}")
+        interface = klass(vip=self.vip, core=self.core) #, device_path=self.device_path)
+
+        _log.debug(f"Configuring driver with this configuration: {driver_config}")
+        interface.configure(driver_config)
+        return cast(BaseInterface, interface)
+
+    @Core.receiver('onstart')
+    def starting(self, sender, **kwargs):
+        self.setup_device()
+        # self._setup_periodic(initial_setup=True) # TODO: Handle with Poll Scheduler.
+        # TODO: If these paths are still useful, add instance variables in the constructor.
+        # self.all_path_depth, self.all_path_breadth = self.get_paths_for_point(DRIVER_TOPIC_ALL)
+
+    def setup_device(self):
+        # TODO: Make Pydantic configurations for this.
+        config = self.config
+        driver_config = config.get('remote_config', config.get('driver_config', {}))
+        driver_type = config["driver_type"]
+        self.heart_beat_point = config.get("heart_beat_point")
+
+        try:
+            self.interface = self.get_interface(driver_type, driver_config)
+        except ValueError as e:
+            _log.error(f"Failed to setup device: {e}")
+            raise e
 
     # def periodic_read(self, now):
     #     #we not use self.core.schedule to prevent drift.
@@ -408,8 +386,9 @@ class DriverAgent(BasicAgent):
                 self._publish_wrapper(self.all_path_breadth, headers=headers, message=all_message)
 
     ##### NEW METHODS TO SUPPORT DRIVER SERVICE #####
-    def add_equipment(self, device_node):  # New addition, no conflict.
+    def add_equipment(self, device_node):
         # TODO: Is logic needed for scheduling or any other purpose on adding equipment to this remote?
+        self.add_registers(device_node.registry, device_node.identifier)
         self.equipment.add(device_node)
 
     @property

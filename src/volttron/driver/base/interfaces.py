@@ -258,19 +258,20 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         }
 
     @abc.abstractmethod
-    def configure(self, config_dict, registry_config_str):
+    def configure(self, config_dict):
         """
         Configures the :py:class:`Interface` for the specific instance of a device.
 
         :param config_dict: The "driver_config" section of the driver configuration file.
-        :param registry_config_str: The contents of the registry configuration file.
-        :type config_dict: dict
-        :type registry_config_str: str
-
-
-        This method must setup register representations of all points
-        on a device by creating instances of :py:class:`BaseRegister` (or a subclass) and adding them
-        to the Interface with :py:meth:`BaseInterface.insert_register`.
+        # TODO: Move this documentation to appropriate new function.
+        # :param registry_config_str: The contents of the registry configuration file.
+        # :type config_dict: dict
+        # :type registry_config_str: str
+        #
+        #
+        # This method must setup register representations of all points
+        # on a device by creating instances of :py:class:`BaseRegister` (or a subclass) and adding them
+        # to the Interface with :py:meth:`BaseInterface.insert_register`.
         """
         pass
 
@@ -296,6 +297,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
         return list(self.point_map.keys())
 
+    # TODO: Is this method used anywhere?
     def get_register_names_view(self):
         """
         Get a dictview of register names.
@@ -318,7 +320,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
         return self.registers[reg_type, read_only]
 
-    def insert_register(self, register):
+    def insert_register(self, register, base_topic):
         """
         Inserts a register into the :py:class:`Interface`.
 
@@ -326,7 +328,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         :type register: :py:class:`BaseRegister`
         """
         register_point = register.point_name
-        self.point_map[register_point] = register
+        self.point_map['/'.join([base_topic, register_point])] = register
 
         register_type = register.get_register_type()
         self.registers[register_type].append(register)
