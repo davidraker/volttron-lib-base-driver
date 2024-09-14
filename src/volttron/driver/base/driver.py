@@ -22,7 +22,6 @@
 # ===----------------------------------------------------------------------===
 # }}}
 
-import datetime
 import gevent
 import logging
 import random
@@ -32,19 +31,13 @@ from typing import cast
 from weakref import WeakSet
 
 from volttron.client.messaging import headers as headers_mod
-from volttron.client.messaging.topics import (
-    DEVICES_PATH,
-    DEVICES_VALUE,
-    DRIVER_TOPIC_ALL,
-    DRIVER_TOPIC_BASE,
-)
-from volttron.client.vip.agent import BasicAgent, Core
+from volttron.client.vip.agent import Agent, BasicAgent, Core
 from volttron.client.vip.agent.errors import Again, VIPError
 from volttron.utils import format_timestamp, get_aware_utc_now, setup_logging
 
 from volttron.driver.base.driver_locks import publish_lock
-from volttron.driver.base.utils import PublishFormat, setup_publishes
 from volttron.driver.base.interfaces import BaseInterface
+from volttron.driver.base.config import PointConfig, RemoteConfig
 
 setup_logging()
 _log = logging.getLogger(__name__)
@@ -52,91 +45,29 @@ _log = logging.getLogger(__name__)
 
 class DriverAgent(BasicAgent):
 
-    def __init__(self,
-                 parent,
-                 config,
-                 unique_id=None,
-                 ** kwargs):
+    def __init__(self, config: RemoteConfig, equipment_model, scalability_test, tz: str, unique_id: any,
+                 vip: Agent.Subsystems, ** kwargs):
         super(DriverAgent, self).__init__(**kwargs)
-        self.config = config
-        self.parent = parent
-        self.unique_id = unique_id
-        self.vip = parent.vip
-
-        self.device_name = ''
+        self.config: RemoteConfig = config
+        self.equipment_model = equipment_model  # TODO: This should probably move out of the agent and into the base or a library.
+        self.scalability_test = scalability_test  # TODO: If this is used from here, it should probably be in the base driver.
+        self.tz: str = tz  # TODO: This won't update here if it is updated in the agent. Can it's use be moved out of here?
+        self.unique_id: any = unique_id
+        self.vip: Agent.Subsystems = vip
+        
+        # State Variables
         self.equipment = WeakSet()
-        self.heart_beat_point = None
         self.heart_beat_value = 0
         self.interface = None
         self.meta_data = {}
+        self.pollers = {}
+        self.publishers = {}
 
-        # TODO: Replace Nones with setup_publishes when DriverAgentConfig is done in Pydantic
-        self.breadth_first_publishes, self.depth_first_publishes = None, None  # setup_publishes(self.config, self.parent.config)
-
-        ######## TODO: Handle this block with Poll Scheduler. #############
-        # try:
-        #     interval = int(config.get("interval", 60))
-        #     if interval < 1.0:
-        #         raise ValueError
-        # except ValueError:
-        #     _log.warning(f"Invalid device scrape interval {config.get('interval')}. Defaulting to 60 seconds.")
-        #     interval = 60
-        #
-        # self.interval = interval
-        ######### END BLOCK ##############
-
-        self.periodic_read_event = None
-
-        ################ TODO: Handle this block with PollScheduler instead. #######################
-    #     #self.update_scrape_schedule(time_slot, driver_scrape_interval, group, group_offset_interval)
-    #
-    # def update_scrape_schedule(self, time_slot, driver_scrape_interval, group, group_offset_interval):
-    #     self.time_slot_offset = (time_slot * driver_scrape_interval) + (group * group_offset_interval)
-    #     self.time_slot = time_slot
-    #     self.group = group
-    #
-    #     _log.debug(f"{self.device_path} group: {group}, time_slot: {time_slot}, offset: {self.time_slot_offset}")
-    #     if self.time_slot_offset >= self.interval:
-    #         _log.warning("Scrape offset exceeds interval. Required adjustment will cause scrapes to double up with"
-    #                      " other devices.")
-    #         while self.time_slot_offset >= self.interval:
-    #             self.time_slot_offset -= self.interval
-    #
-    #     self._setup_periodic()
-    #
-    #
-    #
-    # def _setup_periodic(self, initial_setup=False):
-    #     if self.periodic_read_event:
-    #         self.periodic_read_event.cancel()
-    #     elif not initial_setup:  # Only create initial periodic if this is called by startup.
-    #         return
-    #     next_periodic_read = self.find_starting_datetime(get_aware_utc_now())
-    #     self.periodic_read_event = self.core.schedule(next_periodic_read, self.periodic_read, next_periodic_read)
-
-    ########################## END BLOCK ###################################################
-
-    def find_starting_datetime(self, now):
-        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        seconds_from_midnight = (now - midnight).total_seconds()
-        interval = self.interval
-
-        offset = seconds_from_midnight % interval
-
-        if not offset:
-            return now
-
-        previous_in_seconds = seconds_from_midnight - offset
-        next_in_seconds = previous_in_seconds + interval
-
-        from_midnight = datetime.timedelta(seconds=next_in_seconds)
-        return midnight + from_midnight + datetime.timedelta(seconds=self.time_slot_offset)
-
-    def add_registers(self, registry_config: list[dict], base_topic: str):
+    def add_registers(self, registry_config: list[PointConfig], base_topic: str):
         """
         Configure a set of registers on this remote.
 
-        :param registry_config: A list of registry points represented as dictionaries
+        :param registry_config: A list of registry points represented as PointConfigs
         :param base_topic: The portion of the topic shared by all points in this registry.
         """
         registers = self.interface.create_registers(registry_config)
@@ -145,6 +76,8 @@ class DriverAgent(BasicAgent):
 
         for point in self.interface.get_register_names():
             register = self.interface.get_register_by_name(point)
+            # TODO: It might be more reasonable to either have the register be aware of the type mappings or have a
+            #  type-mapping function separately. This is rather limiting. What is "ts" anyway? TypeScript?
             if register.register_type == 'bit':
                 ts_type = 'boolean'
             else:
@@ -154,141 +87,120 @@ class DriverAgent(BasicAgent):
                     ts_type = 'float'
                 elif register.python_type is str:
                     ts_type = 'string'
-
+            # TODO: Why is there not an else here? ts_type may be undefined.
+            # TODO: meta_data may belong in the PointNode object. This function could take points instead of their
+            #  configs and pack the data into the PointNode instead of a separate dictionary in this class.
             self.meta_data[point] = {
                 'units': register.get_units(),
                 'type': ts_type,
-                'tz': self.config.get('timezone', '')
+                'tz': self.tz
             }
 
-    def get_interface(self, driver_type: str, driver_config: dict) -> BaseInterface:
-        """Returns an instance of the interface
-
-        :param driver_type: The name of the driver
-        :type driver_type: str
-        :param driver_config: The configuration of the driver
-        :type driver_config: dict
-
-        :return: Returns an instance of a Driver that is a subclass of BaseInterface
-        :rtype: BaseInterface
-
+    @Core.receiver('onstart')
+    def setup_interface(self, _, **__):
+        """Creates the instance of the interface
         :raises ValueError: Raises ValueError if no subclasses are found.
         """
-        klass = BaseInterface.get_interface_subclass(driver_type)
-        _log.debug(f"Instantiating driver: {klass}")
-        interface = klass(vip=self.vip, core=self.core) #, device_path=self.device_path)
-
-        _log.debug(f"Configuring driver with this configuration: {driver_config}")
-        interface.configure(driver_config)
-        return cast(BaseInterface, interface)
-
-    @Core.receiver('onstart')
-    def starting(self, sender, **kwargs):
-        self.setup_device()
-        # self._setup_periodic(initial_setup=True) # TODO: Handle with Poll Scheduler.
-        # TODO: If these paths are still useful, add instance variables in the constructor.
-        # self.all_path_depth, self.all_path_breadth = self.get_paths_for_point(DRIVER_TOPIC_ALL)
-
-    def setup_device(self):
-        # TODO: Make Pydantic configurations for this.
-        config = self.config
-        driver_config = config.get('remote_config', config.get('driver_config', {}))
-        driver_type = config["driver_type"]
-        self.heart_beat_point = config.get("heart_beat_point")
-
         try:
-            self.interface = self.get_interface(driver_type, driver_config)
+            # TODO: What happens if we have multiple device nodes on this remote?
+            #  Are we losing all settings but the first?
+            klass = BaseInterface.get_interface_subclass(self.config.driver_type)
+            interface = klass(vip=self.vip, core=self.core)
+            interface.configure(self.config)
+            self.interface = cast(BaseInterface, interface)
         except ValueError as e:
             _log.error(f"Failed to setup device: {e}")
             raise e
 
-    # def periodic_read(self, now):
-    #     #we not use self.core.schedule to prevent drift.
-    #     next_scrape_time = now + datetime.timedelta(seconds=self.interval)
-    #     # Sanity check now.
-    #     # This is specifically for when this is running in a VM that gets
-    #     # suspended and then resumed.
-    #     # If we don't make this check a resumed VM will publish one event
-    #     # per minute of
-    #     # time the VM was suspended for.
-    #     # TODO: How much of this will be handled by Poll Scheduler and how much remains here?
-    #     test_now = get_aware_utc_now()
-    #     if test_now - next_scrape_time > datetime.timedelta(seconds=self.interval):
-    #         next_scrape_time = self.find_starting_datetime(test_now)
-    #
-    #     _log.debug("{} next scrape scheduled: {}".format(self.device_path, next_scrape_time))
-    #
-    #     self.periodic_read_event = self.core.schedule(next_scrape_time, self.periodic_read,
-    #                                                   next_scrape_time)
-    #
-    #     _log.debug("scraping device: " + self.device_name)
-    #
-    #     if self.parent.scalability_test:
-    #         self.parent.scalability_test.poll_starting(self.device_name)
-    #
-    #     try:
-    #         # TODO: Will need to be changed to get_multiple().
-    #         results = self.interface.scrape_all()
-    #         register_names = self.interface.get_register_names_view()
-    #         for point in (register_names - results.keys()):
-    #             depth_first_topic = self.base_topic(point=point)
-    #             _log.error("Failed to scrape point: " + depth_first_topic)
-    #     except (Exception, gevent.Timeout) as ex:
-    #         tb = traceback.format_exc()
-    #         _log.error('Failed to scrape ' + self.device_name + ':\n' + tb)
-    #         return
-    #
-    #     # XXX: Does a warning need to be printed?
-    #     if not results:
-    #         return
-    #
-    #     utcnow = get_aware_utc_now()
-    #     utcnow_string = format_timestamp(utcnow)
-    #     sync_timestamp = format_timestamp(now - datetime.timedelta(seconds=self.time_slot_offset))
-    #
-    #     headers = {
-    #         headers_mod.DATE: utcnow_string,
-    #         headers_mod.TIMESTAMP: utcnow_string,
-    #         headers_mod.SYNC_TIMESTAMP: sync_timestamp
-    #     }
-    #
-    #     if PublishFormat.Single in self.depth_first_publishes or PublishFormat.Single in self.breadth_first_publishes:
-    #         for point, value in results.items():
-    #             depth_first_topic, breadth_first_topic = self.get_paths_for_point(point)
-    #             message = [value, self.meta_data[point]]
-    #
-    #             if PublishFormat.Single in self.depth_first_publishes:
-    #                 self._publish_wrapper(depth_first_topic, headers=headers, message=message)
-    #
-    #             if PublishFormat.Single in self.breadth_first_publishes:
-    #                 self._publish_wrapper(breadth_first_topic, headers=headers, message=message)
-    #
-    #     # TODO: Need to find any-type topics here:
-    #     message = [results, self.meta_data]
-    #     if PublishFormat.Any in self.depth_first_publishes:
-    #         self._publish_wrapper(self.any_path_depth, headers=headers, message=message)
-    #
-    #     if PublishFormat.Any in self.breadth_first_publishes:
-    #         self._publish_wrapper(self.any_path_breadth, headers=headers, message=message)
-    #
-    #     # TODO: Include last values in message before all publishes.
-    #     if PublishFormat.All in self.depth_first_publishes:
-    #         self._publish_wrapper(self.all_path_depth, headers=headers, message=message)
-    #
-    #     if PublishFormat.All in self.breadth_first_publishes:
-    #         self._publish_wrapper(self.all_path_breadth, headers=headers, message=message)
-    #
-    #     if self.parent.scalability_test:
-    #         self.parent.scalability_test.poll_ending(self.device_name)
+    def poll_data(self, current_points, publish_setup):
+        _log.debug(f'Polling: {self.unique_id}')
+        if self.scalability_test:  # TODO: Update scalability testing.
+            self.scalability_test.poll_starting(self.unique_id)
+        try:
+            results, errors = self.interface.get_multiple_points(current_points.keys())
+            for failed_point, failure_message in errors.items():
+                _log.error(f'Failed to poll {failed_point}: {failure_message}')
+            if results:
+                for topic, value in results.items():
+                    try:
+                        current_points[topic].last_value = value
+                    except KeyError as e:
+                        _log.warning(f'Failed to set last value: "{e}". Point may no longer be found in EquipmentTree.')
+                self.publish(results, publish_setup)
+            return True  # TODO: There could really be better logic in the method to measure success.
+        except (Exception, gevent.Timeout):
+            tb = traceback.format_exc()
+            _log.error(f'Exception while polling {self.unique_id}:\n' + tb)
+            return False
+        finally:
+            if self.scalability_test:
+                self.scalability_test.poll_ending(self.unique_id)
+
+    def publish(self, results, publish_setup):
+        headers = self._publication_headers()
+        for point_topic in publish_setup['single_depth']:
+            self._publish_wrapper(point_topic, headers=headers, message=[
+                results[point_topic], self.meta_data[point_topic]
+            ])
+        for point_topic, publish_topic in publish_setup['single_breadth']:
+            self._publish_wrapper(publish_topic, headers=headers, message=[
+                results[point_topic], self.meta_data[point_topic]
+            ])
+        for device_topic, points in publish_setup['multi_depth'].items():
+            self._publish_wrapper(f'{device_topic}/multi', headers=headers, message=[
+                {point.rsplit('/', 1)[-1]: results[point] for point in points},
+                {point.rsplit('/', 1)[-1]: self.meta_data[point] for point in points}
+            ])
+        for (device_topic, publish_topic), points in publish_setup['multi_breadth'].items():
+            self._publish_wrapper(f'{publish_topic}/multi', headers=headers, message=[
+                {point.rsplit('/', 1)[-1]: results[point] for point in points},
+                {point.rsplit('/', 1)[-1]: self.meta_data[point] for point in points}
+            ])
+        # TODO: If it is desirable to allow all-type publishes on every poll, call all_publish() here.
+
+    @staticmethod
+    def _publication_headers():
+        # TODO: Sync_Timestamp won't work, so far, because time_slot_offset assumed the device was polled once per round.
+        #  Since we are polling through a hyperperiod that may include multiple rounds for a given point or equipment,
+        #  this no longer makes sense. Also, what if some points are polled multiple times compared to others?
+        #  CAN SCHEDULED ALL_PUBLISHES REPLACE THIS MECHANISM IF THEY ARE GENERATED ALL AT ONCE?
+        #  OR JUST USE THIS IS ALL-TYPE PUBLISHES ON A SCHEDULE?
+        utcnow_string = format_timestamp(get_aware_utc_now())
+        headers = {
+            headers_mod.DATE: utcnow_string,
+            headers_mod.TIMESTAMP: utcnow_string,
+            # headers_mod.SYNC_TIMESTAMP: format_timestamp(current_start - timedelta(seconds=self.time_slot_offset))
+        }
+        return headers
+
+    def all_publish(self, node):
+        _log.debug('@@@@@@@@@ IN ALL PUBLISH.')
+        device_node = self.equipment_model.get_node(node.identifier)
+        if self.equipment_model.is_stale(device_node.identifier):
+            # TODO: Is this the correct thing to do here?
+            _log.warning(f'Skipping all publish of device: {device_node.identifier}. Data is stale.')
+        else:
+            headers = self._publication_headers()
+            depth_topic, breadth_topic = self.equipment_model.get_device_topics(device_node.identifier)
+            points = self.equipment_model.points(device_node.identifier)
+            if self.equipment_model.is_published_all_depth(device_node.identifier):
+                self._publish_wrapper(f'{depth_topic}/all', headers=headers, message=[
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
+                    {p.identifier.rsplit('/', 1)[-1]: self.meta_data[p.identifier] for p in points}
+                ])
+            elif self.equipment_model.is_published_all_breadth(device_node.identifier):
+                self._publish_wrapper(f'{breadth_topic}/all', headers=headers, message=[
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
+                    {p.identifier.rsplit('/', 1)[-1]: self.meta_data[p.identifier] for p in points}
+                ])
 
     def _publish_wrapper(self, topic, headers, message):
         while True:
             try:
                 with publish_lock():
                     _log.debug("publishing: " + topic)
-                    self.vip.pubsub.publish('pubsub', topic, headers=headers,
-                                            message=message).get(timeout=10.0)
-
+                    #TODO: Do we really need to block on every publish call?
+                    self.vip.pubsub.publish('pubsub', topic, headers=headers, message=message).get(timeout=10.0)
                     _log.debug("finish publishing: " + topic)
             except gevent.Timeout:
                 _log.warning("Did not receive confirmation of publish to " + topic)
@@ -303,48 +215,29 @@ class DriverAgent(BasicAgent):
                 break
 
     def heart_beat(self):
-        if self.heart_beat_point is None:
+        if self.config.heart_beat_point is None:
             return
-
         self.heart_beat_value = int(not bool(self.heart_beat_value))
+        _log.info(f'sending heartbeat: {self.unique_id} --- {str(self.heart_beat_value)}')
+        self.set_point(self.config.heart_beat_point, self.heart_beat_value)
 
-        _log.debug("sending heartbeat: " + self.device_name + ' ' + str(self.heart_beat_value))
+    def get_point(self, topic, **kwargs):
+        return self.interface.get_point(topic, **kwargs)
 
-        self.set_point(self.heart_beat_point, self.heart_beat_value)
-
-    # TODO: This is problematic now, since:
-    #  (a) topics are not unique in remote,
-    #  (b) need to handle any publishes
-    #  (c) breadth topics should by default have "points/" as root topic.
-    #  (d) topic roots should be configurable at the agent level.
-    # def get_paths_for_point(self, point):
-    #     depth_first = self.base_topic(point=point)
-    #
-    #     parts = depth_first.split('/')
-    #     breadth_first_parts = parts[1:]
-    #     breadth_first_parts.reverse()
-    #     breadth_first_parts = [DRIVER_TOPIC_BASE] + breadth_first_parts
-    #     breadth_first = '/'.join(breadth_first_parts)
-    #
-    #     return depth_first, breadth_first
-
-    def get_point(self, point_name, **kwargs):
-        return self.interface.get_point(point_name, **kwargs)
-
-    def set_point(self, point_name, value, **kwargs):
-        return self.interface.set_point(point_name, value, **kwargs)
+    def set_point(self, topic, value, **kwargs):
+        return self.interface.set_point(topic, value, **kwargs)
 
     def scrape_all(self):
         return self.interface.scrape_all()
 
-    def get_multiple_points(self, point_names, **kwargs):
-        return self.interface.get_multiple_points(self.device_name, point_names, **kwargs)
+    def get_multiple_points(self, topics, **kwargs):
+        return self.interface.get_multiple_points(topics, **kwargs)
 
-    def set_multiple_points(self, point_names_values, **kwargs):
-        return self.interface.set_multiple_points(self.device_name, point_names_values, **kwargs)
+    def set_multiple_points(self, topics_values, **kwargs):
+        return self.interface.set_multiple_points(topics_values, **kwargs)
 
-    def revert_point(self, point_name, **kwargs):
-        self.interface.revert_point(point_name, **kwargs)
+    def revert_point(self, topic, **kwargs):
+        self.interface.revert_point(topic, **kwargs)
 
     def revert_all(self, **kwargs):
         self.interface.revert_all(**kwargs)
@@ -355,42 +248,29 @@ class DriverAgent(BasicAgent):
         :param point_name: point which sent COV notifications
         :param point_values: COV point values
         """
-        utcnow = get_aware_utc_now()
-        utcnow_string = format_timestamp(utcnow)
-        headers = {
-            headers_mod.DATE: utcnow_string,
-            headers_mod.TIMESTAMP: utcnow_string,
-        }
+        et = self.equipment_model
+        headers = self._publication_headers()
         for point, value in point_values.items():
-            results = {point_name: value}
-            meta = {point_name: self.meta_data[point_name]}
-            all_message = [results, meta]
-            individual_point_message = [value, self.meta_data[point_name]]
+            point_depth_topic, point_breadth_topic = et.get_point_topics(point)
+            device_depth_topic, device_breadth_topic = et.get_device_topics(point)
 
-            depth_first_topic, breadth_first_topic = self.get_paths_for_point(point_name)
+            if et.is_published_single_depth(point):
+                self._publish_wrapper(point_depth_topic, headers, [value, self.meta_data[point_name]])
+            if et.is_published_single_breadth(point):
+                self._publish_wrapper(point_breadth_topic, headers, [value, self.meta_data[point_name]])
+            if et.is_published_multi_depth(point) or et.is_published_all_depth(point):
+                self._publish_wrapper(device_depth_topic, headers,
+                                      [{point_name: value}, {point_name: self.meta_data[point_name]}])
+            if et.is_published_multi_breadth(point) or et.is_published_all_breadth(point):
+                self._publish_wrapper(device_breadth_topic, headers,
+                                      [{point_name: value}, {point_name: self.meta_data[point_name]}])
 
-            if self.publish_depth_first:
-                self._publish_wrapper(depth_first_topic,
-                                      headers=headers,
-                                      message=individual_point_message)
-            #
-            if self.publish_breadth_first:
-                self._publish_wrapper(breadth_first_topic,
-                                      headers=headers,
-                                      message=individual_point_message)
-
-            if self.publish_depth_first_all:
-                self._publish_wrapper(self.all_path_depth, headers=headers, message=all_message)
-
-            if self.publish_breadth_first_all:
-                self._publish_wrapper(self.all_path_breadth, headers=headers, message=all_message)
-
-    ##### NEW METHODS TO SUPPORT DRIVER SERVICE #####
     def add_equipment(self, device_node):
         # TODO: Is logic needed for scheduling or any other purpose on adding equipment to this remote?
-        self.add_registers(device_node.registry, device_node.identifier)
+        self.add_registers([p.config for p in self.equipment_model.points(device_node.identifier)],
+                           device_node.identifier)
         self.equipment.add(device_node)
 
     @property
     def point_set(self):
-            return {point for equip in self.equipment for point in self.parent.equipment_tree.points(equip.identifier)}
+            return {point for equip in self.equipment for point in self.equipment_model.points(equip.identifier)}

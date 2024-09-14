@@ -158,6 +158,8 @@ import logging
 
 from volttron.utils import get_module, get_subclasses
 
+from volttron.driver.base.config import PointConfig, RemoteConfig
+
 _log = logging.getLogger(__name__)
 
 
@@ -176,13 +178,13 @@ class BaseRegister:
 
     :param register_type: Type of the register. Either "bit" or "byte". Usually "byte".
     :param read_only: Specify if the point can be written to.
-    :param pointName: Name of the register.
+    :param point_name: Name of the register.
     :param units: Units of the value of the register.
     :param description: Description of the register.
 
     :type register_type: str
     :type read_only: bool
-    :type pointName: str
+    :type point_name: str
     :type units: str
     :type description: str
 
@@ -191,10 +193,10 @@ class BaseRegister:
     string for the units argument.
     """
 
-    def __init__(self, register_type, read_only, pointName, units, description=''):
+    def __init__(self, register_type, read_only, point_name, units, description=''):
         self.read_only = read_only
         self.register_type = register_type
-        self.point_name = pointName
+        self.point_name = point_name
         self.units = units
         self.description = description
         self.python_type = int
@@ -239,14 +241,16 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
     """
 
+    config_class = PointConfig
+
     def __init__(self, vip=None, core=None, **kwargs):
         # Object does not take any arguments to the init.
         super(BaseInterface, self).__init__()
+        # TODO: Reevaluate whether vip and core are necessary here. They are currently only used by the bacnet interface.
         self.vip = vip
         self.core = core
 
         self.point_map = {}
-
         self.build_register_map()
 
     def build_register_map(self):
@@ -297,7 +301,6 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
         return list(self.point_map.keys())
 
-    # TODO: Is this method used anywhere?
     def get_register_names_view(self):
         """
         Get a dictview of register names.
@@ -334,18 +337,18 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         self.registers[register_type].append(register)
 
     @abc.abstractmethod
-    def get_point(self, point_name, **kwargs):
+    def get_point(self, topic, **kwargs):
         """
         Get the current value for the point name given.
 
-        :param point_name: Name of the point to retrieve.
+        :param topic: Name of the point to retrieve.
         :param kwargs: Any interface specific parameters.
-        :type point_name: str
+        :type topic: str
         :return: Point value
         """
 
     @abc.abstractmethod
-    def set_point(self, point_name, value, **kwargs):
+    def set_point(self, topic, value, **kwargs):
         """
         Set the current value for the point name given.
 
@@ -356,21 +359,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         acceptable to return the value that was requested
         if no error occurs.
 
-        :param point_name: Name of the point to retrieve.
+        :param topic: Name of the point to retrieve.
         :param value: Value to set the point to.
         :param kwargs: Any interface specific parameters.
-        :type point_name: str
+        :type topic: str
         :return: Actual point value set.
-        """
-
-    @abc.abstractmethod
-    def scrape_all(self):
-        """
-        Method the Platform Driver Agent calls to get the current state
-        of a device for publication.
-
-        :return: Point names to values for device.
-        :rtype: dict
         """
 
     @abc.abstractmethod
@@ -382,49 +375,39 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def revert_point(self, point_name, **kwargs):
+    def revert_point(self, topic, **kwargs):
         """
         Revert point to it's default state.
 
         :param kwargs: Any interface specific parameters.
         """
 
-    def get_multiple_points(self, path, point_names, **kwargs):
+    def get_multiple_points(self, topics: list[str], **kwargs) -> (dict, dict):
         """
         Read multiple points from the interface.
 
-        :param path: Device path
-        :param point_names: Names of points to retrieve
+        :param topics: Names of points to retrieve
         :param kwargs: Any interface specific parameters
-        :type path: str
-        :type point_names: [str]
-        :type kwargs: dict
-
         :returns: Tuple of dictionaries to results and any errors
         :rtype: (dict, dict)
         """
         results = {}
         errors = {}
-
-        for point_name in point_names:
-            return_key = path + '/' + point_name
+        for topic in topics:
             try:
-                value = self.get_point(point_name, **kwargs)
-                results[return_key] = value
+                value = self.get_point(topic, **kwargs)
+                results[topic] = value
             except Exception as e:
-                errors[return_key] = repr(e)
+                errors[topic] = repr(e)
 
         return results, errors
 
-    def set_multiple_points(self, path, point_names_values, **kwargs):
+    def set_multiple_points(self, topics_values, **kwargs):
         """
         Set multiple points on the interface.
 
-        :param path: Device path
-        :param point_names_values: Point names and values to be set to.
+        :param topics_values: Topics and values to which they will be set.
         :param kwargs: Any interface specific parameters
-        :type path: str
-        :type point_names: [(str, k)] where k is the new value
         :type kwargs: dict
 
         :returns: Dictionary of points to any exceptions raised
@@ -432,11 +415,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
         results = {}
 
-        for point_name, value in point_names_values:
+        for topic, value in topics_values:
             try:
-                self.set_point(point_name, value, **kwargs)
+                self.set_point(topic, value, **kwargs)
             except Exception as e:
-                results[path + '/' + point_name] = repr(e)
+                results[topic] = repr(e)
 
         return results
 
@@ -451,7 +434,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return subclasses[0]
 
     @classmethod
-    def unique_remote_id(cls, config_name: str, config: dict) -> tuple:
+    def unique_remote_id(cls, config_name: str, config: RemoteConfig) -> tuple:
         """Unique Remote ID
         Subclasses should use this class method to return a hashable identifier which uniquely identifies a single
          remote -- e.g., if multiple remotes may exist at a single IP address, but on different ports,
@@ -546,8 +529,6 @@ class RevertTracker:
         If no default value is set and a no clean values have been submitted
         a point value will be an instance of :py:class:`DriverInterfaceError`.
 
-        :param point: Name of point to get.
-        :type point: str
         :return: Values to revert to.
         :rtype: dict
         """
@@ -605,14 +586,14 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         """
         self._tracker.set_default(point, value)
 
-    def set_point(self, point_name, value):
+    def set_point(self, topic, value):
         """
         Implementation of :py:meth:`BaseInterface.set_point`
 
         Passes arguments through to :py:meth:`BasicRevert._set_point`
         """
-        result = self._set_point(point_name, value)
-        self._tracker.mark_dirty_point(point_name)
+        result = self._set_point(topic, value)
+        self._tracker.mark_dirty_point(topic)
         return result
 
     def scrape_all(self):
@@ -625,7 +606,7 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         return result
 
     @abc.abstractmethod
-    def _set_point(self, point_name, value):
+    def _set_point(self, topic, value):
         """
         Set the current value for the point name given.
 
@@ -640,10 +621,10 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         acceptable to return the value that was requested
         if no error occurs.
 
-        :param point_name: Name of the point to retrieve.
+        :param topic: Name of the point to retrieve.
         :param value: Value to set the point to.
         :param kwargs: Any interface specific parameters.
-        :type point_name: str
+        :type topic: str
         :return: Actual point value set.
         """
 
@@ -667,41 +648,41 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
 
         Implementation of :py:meth:`BaseInterface.revert_all`
 
-        Calls :py:meth:`BasicRevert._set_point` with `point_name`
+        Calls :py:meth:`BasicRevert._set_point` with `topic`
         and the value to revert the point to for every writable
         point on a device.
 
         Currently \*\*kwargs is ignored.
         """
         points = self._tracker.get_all_revert_values()
-        for point_name, value in points.items():
+        for topic, value in points.items():
             if not isinstance(value, DriverInterfaceError):
                 try:
-                    self._set_point(point_name, value)
-                    self._tracker.clear_dirty_point(point_name)
+                    self._set_point(topic, value)
+                    self._tracker.clear_dirty_point(topic)
                 except Exception as e:
-                    _log.warning("Error while reverting point {}: {}".format(point_name, str(e)))
+                    _log.warning("Error while reverting point {}: {}".format(topic, str(e)))
 
-    def revert_point(self, point_name, **kwargs):
+    def revert_point(self, topic, **kwargs):
         r"""
         Implementation of :py:meth:`BaseInterface.revert_point`
 
         Revert point to its default state.
 
-        Calls :py:meth:`BasicRevert._set_point` with `point_name`
+        Calls :py:meth:`BasicRevert._set_point` with `topic`
         and the value to revert the point to.
 
-        :param point_name: Name of the point to revert.
-        :type point_name: str
+        :param topic: Name of the point to revert.
+        :type topic: str
 
         Currently \*\*kwargs is ignored.
         """
         try:
-            value = self._tracker.get_revert_value(point_name)
+            value = self._tracker.get_revert_value(topic)
         except DriverInterfaceError:
             return
 
-        _log.debug("Reverting {} to {}".format(point_name, value))
+        _log.info("Reverting {} to {}".format(topic, value))
 
-        self._set_point(point_name, value)
-        self._tracker.clear_dirty_point(point_name)
+        self._set_point(topic, value)
+        self._tracker.clear_dirty_point(topic)
