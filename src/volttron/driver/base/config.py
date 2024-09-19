@@ -9,7 +9,7 @@ DataSource = StrEnum('DataSource', ['SHORT_POLL', 'LONG_POLL', 'NEVER', 'POLL_ON
 class EquipmentConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True, populate_by_name=True)
     active: bool = True
-    group: int | None = None
+    group: str | None = None
     meta_data: dict = {}
     polling_interval: float | None = Field(default=None, alias='interval')
     publish_single_depth: bool | None = Field(default=None, alias='publish_depth_first_single')
@@ -31,7 +31,7 @@ class PointConfig(EquipmentConfig):
     writable: bool = Field(default=False, alias='Writable')
     notes: str = Field(default='', alias='Notes')
 
-    # noinspection PyMethodParameters
+    @classmethod
     @field_validator('data_source', mode='before')
     def _normalize_data_source(cls, v):
         return v.lower()

@@ -60,7 +60,6 @@ class DriverAgent(BasicAgent):
         self.heart_beat_value = 0
         self.interface = None
         self.meta_data = {}
-        self.pollers = {}
         self.publishers = {}
 
     def add_registers(self, registry_config: list[PointConfig], base_topic: str):
@@ -119,7 +118,7 @@ class DriverAgent(BasicAgent):
         try:
             results, errors = self.interface.get_multiple_points(current_points.keys())
             for failed_point, failure_message in errors.items():
-                _log.error(f'Failed to poll {failed_point}: {failure_message}')
+                _log.warning(f'Failed to poll {failed_point}: {failure_message}')
             if results:
                 for topic, value in results.items():
                     try:

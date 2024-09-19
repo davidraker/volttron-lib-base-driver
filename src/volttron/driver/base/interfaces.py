@@ -382,6 +382,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         :param kwargs: Any interface specific parameters.
         """
 
+    @abc.abstractmethod
     def get_multiple_points(self, topics: list[str], **kwargs) -> (dict, dict):
         """
         Read multiple points from the interface.
