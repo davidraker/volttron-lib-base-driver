@@ -1,9 +1,14 @@
-from enum import StrEnum
+from enum import Enum
 from pydantic import BaseModel, computed_field, ConfigDict, Field, field_validator
 
 # TODO: Wire up the data_source field to poll scheduling (everything is currently short-poll because this isn't used).
 # TODO: Should NEVER actually be an option? Could it just be None?
-DataSource = StrEnum('DataSource', ['SHORT_POLL', 'LONG_POLL', 'NEVER', 'POLL_ONCE', 'STATIC'])
+class DataSource(Enum):
+    SHORT_POLL = "short_poll"
+    LONG_POLL = "long_poll"
+    NEVER = "never"
+    POLL_ONCE = "poll_once"
+    STATIC = "static"
 
 
 class EquipmentConfig(BaseModel):
