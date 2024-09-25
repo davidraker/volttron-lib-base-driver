@@ -156,6 +156,8 @@ to set values for each point to revert to.
 import abc
 import logging
 
+from weakref import WeakSet
+
 from volttron.utils import get_module, get_subclasses
 
 from volttron.driver.base.config import PointConfig, RemoteConfig
@@ -251,14 +253,11 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         self.core = core
 
         self.point_map = {}
-        self.build_register_map()
-
-    def build_register_map(self):
         self.registers = {
-            ('byte', True): [],
-            ('byte', False): [],
-            ('bit', True): [],
-            ('bit', False): []
+            ('byte', True): WeakSet(),
+            ('byte', False): WeakSet(),
+            ('bit', True): WeakSet(),
+            ('bit', False): WeakSet()
         }
 
     @abc.abstractmethod
@@ -323,18 +322,25 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
         return self.registers[reg_type, read_only]
 
-    def insert_register(self, register, base_topic):
+    @abc.abstractmethod
+    def create_register(self, register_definition: PointConfig) -> BaseRegister | None:
+        """Create a register instance from the provided PointConfig.
+
+        :param register_definition: PointConfig from which to create a Register instance.
+        """
+
+    def insert_register(self, register: BaseRegister, base_topic: str):
         """
         Inserts a register into the :py:class:`Interface`.
 
         :param register: Register to add to the interface.
-        :type register: :py:class:`BaseRegister`
+        :param base_topic: Topic up to the point name.
         """
         register_point = register.point_name
         self.point_map['/'.join([base_topic, register_point])] = register
 
         register_type = register.get_register_type()
-        self.registers[register_type].append(register)
+        self.registers[register_type].add(register)
 
     @abc.abstractmethod
     def get_point(self, topic, **kwargs):

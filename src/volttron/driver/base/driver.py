@@ -66,8 +66,8 @@ class DriverAgent(BasicAgent):
         :param registry_config: A list of registry points represented as PointConfigs
         :param base_topic: The portion of the topic shared by all points in this registry.
         """
-        registers = self.interface.create_registers(registry_config)
-        for register in registers:
+        for register_config in registry_config:
+            register = self.interface.create_register(register_config)
             self.interface.insert_register(register, base_topic)
 
         for point_name in self.interface.get_register_names():

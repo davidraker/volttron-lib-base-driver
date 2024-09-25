@@ -16,7 +16,6 @@ class EquipmentConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True, populate_by_name=True)
     active: bool = True
     group: str | None = None
-    meta_data: dict = {}
     # TODO: If this needs to be an int, we may need to use milliseconds someplace.
     polling_interval: int | None = Field(default=None, alias='interval')
     publish_single_depth: bool | None = Field(default=None, alias='publish_depth_first_single')
