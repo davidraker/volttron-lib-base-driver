@@ -35,14 +35,14 @@ class EquipmentConfig(BaseModel):
 
 class PointConfig(EquipmentConfig):
     data_source: DataSource = Field(default='short_poll', alias='Data Source')
+    notes: str = Field(default='', alias='Notes')
     reference_point_name: str = Field(default='', alias='Reference Point Name')
-    volttron_point_name: str = Field(alias='Volttron Point Name')
+    stale_timeout_configured: float | None = Field(default=None, alias='stale_timeout')
+    stale_timeout_multiplier: float = Field(default=3)
     units: str = Field(default='', alias='Units')
     units_details: str = Field(default='', alias='Unit Details')
-    configured_stale_timeout: float | None = Field(default=None, alias='stale_timeout')
-    stale_timeout_multiplier: float = Field(default=3)
+    volttron_point_name: str = Field(alias='Volttron Point Name')
     writable: bool = Field(default=False, alias='Writable')
-    notes: str = Field(default='', alias='Notes')
 
     @classmethod
     @field_validator('data_source', mode='before')
@@ -52,16 +52,16 @@ class PointConfig(EquipmentConfig):
     @computed_field
     @property
     def stale_timeout(self) -> timedelta | None:
-        if self.configured_stale_timeout is None and self.polling_interval is None:
+        if self.stale_timeout_configured is None and self.polling_interval is None:
             return None
         else:
-            return timedelta(seconds=(self.configured_stale_timeout
-                    if self.configured_stale_timeout is not None
+            return timedelta(seconds=(self.stale_timeout_configured
+                    if self.stale_timeout_configured is not None
                     else self.polling_interval * self.stale_timeout_multiplier))
 
     @stale_timeout.setter
     def stale_timeout(self, value):
-        self.configured_stale_timeout = value
+        self.stale_timeout_configured = value
 
 
 class DeviceConfig(EquipmentConfig):
@@ -71,7 +71,6 @@ class DeviceConfig(EquipmentConfig):
     registry_config: list[PointConfig] = []
 
 
-# TODO: Do we really need subclasses for the interfaces?
 class RemoteConfig(BaseModel):
     model_config = ConfigDict(extra='allow', validate_assignment=True)
     driver_type: str
