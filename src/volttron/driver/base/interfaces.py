@@ -243,14 +243,17 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
 
     """
 
-    config_class = PointConfig
+    REGISTER_CONFIG_CLASS = PointConfig
+    INTERFACE_CONFIG_CLASS = RemoteConfig
 
-    def __init__(self, vip=None, core=None, **kwargs):
+    def __init__(self, config: RemoteConfig, **kwargs):
         # Object does not take any arguments to the init.
         super(BaseInterface, self).__init__()
+        self.config = config
         # TODO: Reevaluate whether vip and core are necessary here. They are currently only used by the bacnet interface.
-        self.vip = vip
-        self.core = core
+        self.core = None
+        self.vip = None
+
 
         self.point_map = {}
         self.registers = {
@@ -260,25 +263,24 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             ('bit', False): WeakSet()
         }
 
-    @abc.abstractmethod
-    def configure(self, config_dict):
-        """
-        Configures the :py:class:`Interface` for the specific instance of a device.
+    def on_start(self, core=None, vip=None):
+        """on_start is called from the DriverAgent on_start. It may be subclassed with actions needed by the interface
+            at this time. Interfaces subclassing this method must call super to receive the core and vip objects
+            from the DriverAgent."""
+        self.core = core
+        self.vip = vip
 
-        :param config_dict: The "driver_config" section of the driver configuration file.
-        # TODO: Move this documentation to appropriate new function.
-        # :param registry_config_str: The contents of the registry configuration file.
-        # :type config_dict: dict
-        # :type registry_config_str: str
-        #
-        #
-        # This method must setup register representations of all points
-        # on a device by creating instances of :py:class:`BaseRegister` (or a subclass) and adding them
-        # to the Interface with :py:meth:`BaseInterface.insert_register`.
-        """
+    def finalize_setup(self, initial_setup: bool = False):
+        """Finalize setup will be called after the interface has been configured and all registers have been inserted.
+            It will be called again after changes are made to configurations or registers
+            to perform any post-change setup.
+            Interfaces should override this method if post-configuration setup is required.
+
+            :param initial_setup True on the first call. False for calls after changes.
+            """
         pass
 
-    def get_register_by_name(self, name):
+    def get_register_by_name(self, name: str) -> type[BaseRegister]:
         """
         Get a register by it's point name.
 
@@ -323,7 +325,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return self.registers[reg_type, read_only]
 
     @abc.abstractmethod
-    def create_register(self, register_definition: PointConfig) -> BaseRegister | None:
+    def create_register(self, register_definition: PointConfig) -> type[BaseRegister]:
         """Create a register instance from the provided PointConfig.
 
         :param register_definition: PointConfig from which to create a Register instance.
@@ -336,11 +338,8 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         :param register: Register to add to the interface.
         :param base_topic: Topic up to the point name.
         """
-        register_point = register.point_name
-        self.point_map['/'.join([base_topic, register_point])] = register
-
-        register_type = register.get_register_type()
-        self.registers[register_type].add(register)
+        self.point_map['/'.join([base_topic, register.point_name])] = register
+        self.registers[register.get_register_type()].add(register)
 
     @abc.abstractmethod
     def get_point(self, topic, **kwargs):
@@ -577,7 +576,6 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
     """
 
     def __init__(self, **kwargs):
-        super(BasicRevert, self).__init__(**kwargs)
         self._tracker = RevertTracker()
 
     def _update_clean_values(self, points):

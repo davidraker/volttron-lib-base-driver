@@ -59,6 +59,16 @@ class DriverAgent(BasicAgent):
         self.interface = None
         self.publishers = {}
 
+        try:
+            # TODO: What happens if we have multiple device nodes on this remote?
+            #  Are we losing all settings but the first?
+            klass = BaseInterface.get_interface_subclass(self.config.driver_type)
+            interface = klass(self.config)
+            self.interface = cast(BaseInterface, interface)
+        except ValueError as e:
+            _log.error(f"Failed to setup device: {e}")
+            raise e
+
     def add_registers(self, registry_config: list[PointConfig], base_topic: str):
         """
         Configure a set of registers on this remote.
@@ -69,6 +79,7 @@ class DriverAgent(BasicAgent):
         for register_config in registry_config:
             register = self.interface.create_register(register_config)
             self.interface.insert_register(register, base_topic)
+        self.interface.finalize_setup(initial_setup=True)
 
         for point_name in self.interface.get_register_names():
             register = self.interface.get_register_by_name(point_name)
@@ -94,20 +105,12 @@ class DriverAgent(BasicAgent):
             }
 
     @Core.receiver('onstart')
-    def setup_interface(self, _, **__):
-        """Creates the instance of the interface
+    def on_start(self, _, **__):
+        """Calls on_start on the interface to allow any on_start methods there.
+            The BaseInterface on_start receives the vip and core objects.
         :raises ValueError: Raises ValueError if no subclasses are found.
         """
-        try:
-            # TODO: What happens if we have multiple device nodes on this remote?
-            #  Are we losing all settings but the first?
-            klass = BaseInterface.get_interface_subclass(self.config.driver_type)
-            interface = klass(vip=self.vip, core=self.core)
-            interface.configure(self.config)
-            self.interface = cast(BaseInterface, interface)
-        except ValueError as e:
-            _log.error(f"Failed to setup device: {e}")
-            raise e
+        self.interface.on_start(self.core, self.vip)
 
     def poll_data(self, current_points, publish_setup):
         _log.debug(f'@@@@@ Polling: {self.unique_id}')
