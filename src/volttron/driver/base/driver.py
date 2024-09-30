@@ -31,13 +31,11 @@ from weakref import WeakSet
 
 
 from volttron.client.vip.agent import Agent, BasicAgent, Core
-from volttron.utils import setup_logging
 
 from volttron.driver.base.interfaces import BaseInterface
 from volttron.driver.base.config import PointConfig, RemoteConfig
 from .utils import publication_headers, publish_wrapper
 
-setup_logging()
 _log = logging.getLogger(__name__)
 
 

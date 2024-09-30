@@ -4,11 +4,11 @@ import random
 
 from volttron.client.messaging import headers as headers_mod
 from volttron.client.vip.agent.errors import Again, VIPError
-from volttron.utils import format_timestamp, get_aware_utc_now, setup_logging
+from volttron.utils import format_timestamp, get_aware_utc_now
 
 from .driver_locks import publish_lock
 
-setup_logging()
+
 _log = logging.getLogger(__name__)
 
 

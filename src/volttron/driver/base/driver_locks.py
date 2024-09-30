@@ -27,9 +27,7 @@ import resource
 from contextlib import contextmanager
 from gevent.lock import BoundedSemaphore, DummySemaphore
 
-from volttron.utils import setup_logging
 
-setup_logging()
 _log = logging.getLogger(__name__)
 
 _socket_lock = None
