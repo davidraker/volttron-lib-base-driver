@@ -52,7 +52,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-volttron = "^10.0.5rc0"
+volttron-core = { path = "../volttron-core", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^6.2.5"
