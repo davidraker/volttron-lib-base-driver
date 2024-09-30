@@ -63,7 +63,7 @@ The `Interface` class must implement the following methods:
 - :py:meth:`BaseInterface.configure`
 - :py:meth:`BaseInterface.set_point`
 - :py:meth:`BaseInterface.get_point`
-- :py:meth:`BaseInterface.scrape_all`
+- :py:meth:`BaseInterface.get_multiple_points`
 
 
 These methods are required but can be implemented using the :py:class:`BasicRevert` mixin.
@@ -98,8 +98,8 @@ will use the created registers to create meta data for each point on the device.
 
 Device Scraping
 ---------------
-
-The work scheduling and publish periodic device scrapes is handled by
+# TODO: Documentation in these files is all wrong now.
+The work scheduling and publish periodic device polls is handled by
 the Platform Driver Agent. When a scrape starts the Platform Driver Agent calls the
 :py:meth:`BaseInterface.scrape_all`. It will take the results of the
 call and attach meta data and and publish as needed.
@@ -156,6 +156,7 @@ to set values for each point to revert to.
 import abc
 import logging
 
+from collections.abc import KeysView
 from weakref import WeakSet
 
 from volttron.utils import get_module, get_subclasses
@@ -388,7 +389,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def get_multiple_points(self, topics: list[str], **kwargs) -> (dict, dict):
+    def get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
         """
         Read multiple points from the interface.
 
@@ -601,14 +602,14 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         self._tracker.mark_dirty_point(topic)
         return result
 
-    def scrape_all(self):
+    def get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
         """
         Implementation of :py:meth:`BaseInterface.scrape_all`
         """
-        result = self._scrape_all()
-        self._update_clean_values(result)
+        results, errors = self._get_multiple_points(topics, **kwargs)
+        self._update_clean_values(results)
 
-        return result
+        return results
 
     @abc.abstractmethod
     def _set_point(self, topic, value):
@@ -634,17 +635,16 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def _scrape_all(self):
+    def _get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
         """
-        Method the Platform Driver Agent calls to get the current state
-        of a device for publication.
+        Method the Platform Driver Agent calls to get multiple point values.
 
         If using this mixin you must override this method
-        instead of :py:meth:`BaseInterface.scrape_all`. Otherwise
+        instead of :py:meth:`BaseInterface.get_multiple_points`. Otherwise
         the purpose is exactly the same.
 
         :return: Point names to values for device.
-        :rtype: dict
+        :rtype: dict, dict
         """
 
     def revert_all(self, **kwargs):

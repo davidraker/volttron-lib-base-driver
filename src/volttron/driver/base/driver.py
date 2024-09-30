@@ -128,14 +128,18 @@ class DriverAgent(BasicAgent):
                         _log.warning(f'Failed to set last value: "{e}". Point may no longer be found in EquipmentTree.')
                 self.publish(results, publish_setup)
             return True  # TODO: There could really be better logic in the method to measure success.
-        except (Exception, gevent.Timeout):
-            tb = traceback.format_exc()
-            _log.error(f'Exception while polling {self.unique_id}:\n' + tb)
+        except (Exception, gevent.Timeout) as e:
+            _log.error(f'Exception while polling {self.unique_id}: {e}')
+            if self.config.debug:
+                # TODO: Add an RPC to turn on debugging for individual remotes. Maybe for nodes as well?
+                tb = traceback.format_exc()
+                _log.error(tb)
             return False
         finally:
             if self.scalability_test:
                 self.scalability_test.poll_ending(self.unique_id)
 
+    # noinspection DuplicatedCode
     def publish(self, results, publish_setup):
         headers = publication_headers()
         # TODO: Should probably wrap in try block(s). One for each loop, so it catches failure with single iterations?
@@ -149,15 +153,14 @@ class DriverAgent(BasicAgent):
             ])
         for device_topic, points in publish_setup['multi_depth'].items():
             publish_wrapper(self.vip, f'{device_topic}/multi', headers=headers, message=[
-                {point.rsplit('/', 1)[-1]: results[point] for point in points},
+                {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
                 {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
             ])
         for (device_topic, publish_topic), points in publish_setup['multi_breadth'].items():
             publish_wrapper(self.vip, f'{publish_topic}/multi', headers=headers, message=[
-                {point.rsplit('/', 1)[-1]: results[point] for point in points},
+                {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
                 {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
             ])
-        # TODO: If it is desirable to allow all-type publishes on every poll, call all_publish() here.
 
     def heart_beat(self):
         if self.config.heart_beat_point is None:
