@@ -26,9 +26,8 @@ class EquipmentConfig(BaseModel):
     publish_all_breadth: bool | None = Field(default=None, alias='publish_breadth_first_all')
     reservation_required_for_write: bool = False
 
-    # TODO: Why can't this parse empty strings as numbers with this validator?
-    @classmethod
     @field_validator('polling_interval', mode='before')
+    @classmethod
     def _normalize_polling_interval(cls, v):
         # TODO: This does not match int above, but we may need to convert to ms in calculations.
         return None if v == '' else float(v)
@@ -44,8 +43,8 @@ class PointConfig(EquipmentConfig):
     volttron_point_name: str = Field(alias='Volttron Point Name')
     writable: bool = Field(default=False, alias='Writable')
 
-    @classmethod
     @field_validator('data_source', mode='before')
+    @classmethod
     def _normalize_data_source(cls, v):
         return v.lower()
 
@@ -73,6 +72,7 @@ class DeviceConfig(EquipmentConfig):
 
 class RemoteConfig(BaseModel):
     model_config = ConfigDict(extra='allow', validate_assignment=True)
+    debug: bool = False
     driver_type: str
     heart_beat_point: str | None = None
     module: str | None = None
