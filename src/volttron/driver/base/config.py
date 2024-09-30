@@ -14,7 +14,7 @@ class DataSource(Enum):
 
 class EquipmentConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True, populate_by_name=True)
-    active: bool = True
+    active: bool | None = None
     group: str | None = None
     # TODO: If this needs to be an int, we may need to use milliseconds someplace.
     polling_interval: int | None = Field(default=None, alias='interval')
