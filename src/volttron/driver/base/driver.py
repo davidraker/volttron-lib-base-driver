@@ -77,7 +77,11 @@ class DriverAgent(BasicAgent):
         for register_config in registry_config:
             register = self.interface.create_register(register_config)
             self.interface.insert_register(register, base_topic)
-        self.interface.finalize_setup(initial_setup=True)
+        # TODO: Finalize method is only used by bacnet, currently, and that pauses 30s on each device if it can't connect.
+        # try:
+        #     self.interface.finalize_setup(initial_setup=True)
+        # except BaseException as e:
+        #     _log.warning(f'Exception occurred while finalizing setup of interface for {self.unique_id}: {e}.')
 
         for point_name in self.interface.get_register_names():
             register = self.interface.get_register_by_name(point_name)
