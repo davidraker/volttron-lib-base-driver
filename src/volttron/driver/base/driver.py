@@ -39,12 +39,11 @@ from .utils import publication_headers, publish_wrapper
 _log = logging.getLogger(__name__)
 
 
-class DriverAgent(BasicAgent):
-
-    def __init__(self, config: RemoteConfig, equipment_model, scalability_test, tz: str, unique_id: any,
-                 vip: Agent.Subsystems, ** kwargs):
-        super(DriverAgent, self).__init__(**kwargs)
+class DriverAgent:
+    def __init__(self, config: RemoteConfig, core, equipment_model, scalability_test, tz: str, unique_id: any,
+                 vip: Agent.Subsystems):
         self.config: RemoteConfig = config
+        self.core = core
         self.equipment_model = equipment_model  # TODO: This should probably move out of the agent and into the base or a library.
         self.scalability_test = scalability_test  # TODO: If this is used from here, it should probably be in the base driver.
         self.tz: str = tz  # TODO: This won't update here if it is updated in the agent. Can it's use be moved out of here?
@@ -61,7 +60,7 @@ class DriverAgent(BasicAgent):
             # TODO: What happens if we have multiple device nodes on this remote?
             #  Are we losing all settings but the first?
             klass = BaseInterface.get_interface_subclass(self.config.driver_type)
-            interface = klass(self.config)
+            interface = klass(self.config, self.core, self.vip)
             self.interface = cast(BaseInterface, interface)
         except ValueError as e:
             _log.error(f"Failed to setup device: {e}")
@@ -105,14 +104,6 @@ class DriverAgent(BasicAgent):
                 'type': ts_type,
                 'tz': self.tz
             }
-
-    @Core.receiver('onstart')
-    def on_start(self, _, **__):
-        """Calls on_start on the interface to allow any on_start methods there.
-            The BaseInterface on_start receives the vip and core objects.
-        :raises ValueError: Raises ValueError if no subclasses are found.
-        """
-        self.interface.on_start(self.core, self.vip)
 
     def poll_data(self, current_points, publish_setup):
         _log.debug(f'@@@@@ Polling: {self.unique_id}')

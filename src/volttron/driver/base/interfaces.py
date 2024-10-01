@@ -247,13 +247,13 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
     REGISTER_CONFIG_CLASS = PointConfig
     INTERFACE_CONFIG_CLASS = RemoteConfig
 
-    def __init__(self, config: RemoteConfig, **kwargs):
+    def __init__(self, config: RemoteConfig, core, vip, *args, **kwargs):
         # Object does not take any arguments to the init.
         super(BaseInterface, self).__init__()
         self.config = config
         # TODO: Reevaluate whether vip and core are necessary here. They are currently only used by the bacnet interface.
-        self.core = None
-        self.vip = None
+        self.core = core
+        self.vip = vip
 
 
         self.point_map = {}
@@ -263,13 +263,6 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
             ('bit', True): WeakSet(),
             ('bit', False): WeakSet()
         }
-
-    def on_start(self, core=None, vip=None):
-        """on_start is called from the DriverAgent on_start. It may be subclassed with actions needed by the interface
-            at this time. Interfaces subclassing this method must call super to receive the core and vip objects
-            from the DriverAgent."""
-        self.core = core
-        self.vip = vip
 
     def finalize_setup(self, initial_setup: bool = False):
         """Finalize setup will be called after the interface has been configured and all registers have been inserted.
