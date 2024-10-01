@@ -602,7 +602,7 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         results, errors = self._get_multiple_points(topics, **kwargs)
         self._update_clean_values(results)
 
-        return results
+        return results, errors
 
     @abc.abstractmethod
     def _set_point(self, topic, value):
