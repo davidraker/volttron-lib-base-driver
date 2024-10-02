@@ -30,7 +30,7 @@ class EquipmentConfig(BaseModel):
     @classmethod
     def _normalize_polling_interval(cls, v):
         # TODO: This does not match int above, but we may need to convert to ms in calculations.
-        return None if v == '' else float(v)
+        return None if v == '' or v is None else float(v)
 
 class PointConfig(EquipmentConfig):
     data_source: DataSource = Field(default='short_poll', alias='Data Source')
@@ -46,6 +46,8 @@ class PointConfig(EquipmentConfig):
     @field_validator('data_source', mode='before')
     @classmethod
     def _normalize_data_source(cls, v):
+        # TODO: This never converts to DataSource.
+        # TODO: Data Source enum needs something to tell Data Point how to serialize it, otherwise enable/disable will fail.
         return v.lower()
 
     @computed_field
