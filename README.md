@@ -24,7 +24,7 @@ Information on how to install of the VOLTTRON platform can be found
 Install the library. You have two options. You can install this library using the version on PyPi:
 
 ```shell
-pip install volttron-lib-base-driver
+poetry add volttron-lib-base-driver
 ```
 
 Or you can install the local version of this library from this repo:
