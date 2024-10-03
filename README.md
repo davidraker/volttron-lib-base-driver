@@ -12,7 +12,7 @@
 * volttron-core >= 2.0.0rc0
 
 # Documentation
-More detailed documentation can be found on [ReadTheDocs](https://volttron.readthedocs.io/en/modular/). The RST source
+More detailed information about the VOLTTRON Driver Framework can be found [ReadTheDocs](https://eclipse-volttron.readthedocs.io/en/latest/external-docs/volttron-platform-driver/index.html#platform-driver-framework). The RST source
 of the documentation for this component is located in the "docs" directory of this repository.
 
 ## Installation
@@ -30,7 +30,7 @@ pip install volttron-lib-base-driver
 Or you can install the local version of this library from this repo:
 
 ```shell
-poetry add .
+poetry add <path to volttron-lib-base-driver>
 ```
 
 ## Development
