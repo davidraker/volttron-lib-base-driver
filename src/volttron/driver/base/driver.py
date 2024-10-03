@@ -159,7 +159,6 @@ class DriverAgent:
         if self.config.heart_beat_point is None:
             return
         self.heart_beat_value = int(not bool(self.heart_beat_value))
-        _log.info(f'sending heartbeat: {self.unique_id} --- {str(self.heart_beat_value)}')
         self.set_point(self.config.heart_beat_point, self.heart_beat_value)
 
     def get_point(self, topic, **kwargs):
