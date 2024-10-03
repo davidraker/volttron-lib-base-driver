@@ -64,7 +64,6 @@ mypy = "^0.942"
 coverage = "^6.3.2"
 isort = "^5.10.1"
 pytest-cov = "^3.0.0"
-volttron-testing = ">=0.4.0rc0"
 
 [tool.poetry.group.documentation.dependencies]
 Sphinx = "^4.5.0"
