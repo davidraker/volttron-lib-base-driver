@@ -157,6 +157,7 @@ import abc
 import logging
 
 from collections.abc import KeysView
+from typing import Iterable
 from weakref import WeakSet
 
 from volttron.utils import get_module, get_subclasses
@@ -319,7 +320,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         return self.registers[reg_type, read_only]
 
     @abc.abstractmethod
-    def create_register(self, register_definition: PointConfig) -> type[BaseRegister]:
+    def create_register(self, register_definition: PointConfig) -> BaseRegister:
         """Create a register instance from the provided PointConfig.
 
         :param register_definition: PointConfig from which to create a Register instance.
@@ -382,7 +383,7 @@ class BaseInterface(object, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
+    def get_multiple_points(self, topics: Iterable[str], **kwargs) -> (dict, dict):
         """
         Read multiple points from the interface.
 
@@ -595,7 +596,7 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         self._tracker.mark_dirty_point(topic)
         return result
 
-    def get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
+    def get_multiple_points(self, topics: Iterable[str], **kwargs) -> (dict, dict):
         """
         Implementation of :py:meth:`BaseInterface.scrape_all`
         """
@@ -628,7 +629,7 @@ class BasicRevert(object, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def _get_multiple_points(self, topics: KeysView[str], **kwargs) -> (dict, dict):
+    def _get_multiple_points(self, topics: Iterable[str], **kwargs) -> (dict, dict):
         """
         Method the Platform Driver Agent calls to get multiple point values.
 
