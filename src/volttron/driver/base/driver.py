@@ -181,9 +181,6 @@ class DriverAgent:
     def set_point(self, topic, value, **kwargs):
         return self.interface.set_point(topic, value, **kwargs)
 
-    def scrape_all(self):
-        return self.interface.scrape_all()
-
     def get_multiple_points(self, topics, **kwargs):
         return self.interface.get_multiple_points(topics, **kwargs)
 
