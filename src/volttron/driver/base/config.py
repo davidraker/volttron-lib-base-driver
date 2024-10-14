@@ -33,7 +33,7 @@ class EquipmentConfig(BaseModel):
         return None if v == '' or v is None else float(v)
 
 class PointConfig(EquipmentConfig):
-    data_source: DataSource = Field(default='short_poll', alias='Data Source')
+    data_source: DataSource = Field(default=DataSource.SHORT_POLL, alias='Data Source')
     notes: str = Field(default='', alias='Notes')
     reference_point_name: str = Field(default='', alias='Reference Point Name')
     stale_timeout_configured: float | None = Field(default=None, alias='stale_timeout')
