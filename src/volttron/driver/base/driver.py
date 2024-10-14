@@ -30,11 +30,12 @@ from typing import cast
 from weakref import WeakSet
 
 
-from volttron.client.vip.agent import Agent, BasicAgent, Core
+from volttron.client.vip.agent import Agent
 
 from volttron.driver.base.interfaces import BaseInterface
 from volttron.driver.base.config import PointConfig, RemoteConfig
-from .utils import publication_headers, publish_wrapper
+from volttron.driver.base.utils import publication_headers, publish_wrapper
+# from platform_driver.poll_scheduler import PollSet  # TODO: This should not import from driver. Need to relocate PollSet.
 
 _log = logging.getLogger(__name__)
 
