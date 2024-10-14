@@ -106,21 +106,20 @@ class DriverAgent:
                 'tz': self.tz
             }
 
-    def poll_data(self, current_points, publish_setup):
+    def poll_data(self, poll_set): # PollSet):
         _log.debug(f'@@@@@ Polling: {self.unique_id}')
         if self.scalability_test:  # TODO: Update scalability testing.
             self.scalability_test.poll_starting(self.unique_id)
         try:
-            results, errors = self.interface.get_multiple_points(current_points.keys())
+            results, errors = self.interface.get_multiple_points(poll_set.points.keys())
             for failed_point, failure_message in errors.items():
                 _log.warning(f'Failed to poll {failed_point}: {failure_message}')
             if results:
                 for topic, value in results.items():
-                    try:
-                        current_points[topic].last_value = value
-                    except KeyError as e:
-                        _log.warning(f'Failed to set last value: "{e}". Point may no longer be found in EquipmentTree.')
-                self.publish(results, publish_setup)
+                    point = poll_set.points.get(topic)
+                    if point and point.active:
+                        point.last_value = value
+                self.publish(results, poll_set)
             return True  # TODO: There could really be better logic in the method to measure success.
         except (Exception, gevent.Timeout) as e:
             _log.error(f'Exception while polling {self.unique_id}: {e}')
@@ -134,27 +133,41 @@ class DriverAgent:
                 self.scalability_test.poll_ending(self.unique_id)
 
     # noinspection DuplicatedCode
-    def publish(self, results, publish_setup):
+    def publish(self, results, poll_set):
         headers = publication_headers()
-        # TODO: Should probably wrap in try block(s). One for each loop, so it catches failure with single iterations?
-        for point_topic in publish_setup['single_depth']:
-            publish_wrapper(self.vip, point_topic, headers=headers, message=[
-                results[point_topic], self.equipment_model.get_node(point_topic).meta_data
-            ])
-        for point_topic, publish_topic in publish_setup['single_breadth']:
-            publish_wrapper(self.vip, publish_topic, headers=headers, message=[
-                results[point_topic], self.equipment_model.get_node(point_topic).meta_data
-            ])
-        for device_topic, points in publish_setup['multi_depth'].items():
-            publish_wrapper(self.vip, f'{device_topic}/multi', headers=headers, message=[
-                {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
-                {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
-            ])
-        for (device_topic, publish_topic), points in publish_setup['multi_breadth'].items():
-            publish_wrapper(self.vip, f'{publish_topic}/multi', headers=headers, message=[
-                {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
-                {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
-            ])
+        for point_topic in poll_set.single_depth:
+            if point_topic in results:
+                try:
+                    publish_wrapper(self.vip, point_topic, headers=headers, message=[
+                        results[point_topic], self.equipment_model.get_node(point_topic).meta_data
+                    ])
+                except Exception as e:
+                    _log.warning(f'Failed to publish single_depth point_topic: {point_topic} -- {e}')
+        for point_topic, publish_topic in poll_set.single_breadth:
+            if point_topic in results:
+                try:
+                    publish_wrapper(self.vip, publish_topic, headers=headers, message=[
+                        results[point_topic], self.equipment_model.get_node(point_topic).meta_data
+                    ])
+                except Exception as e:
+                    _log.warning(f'Failed to publish single_breadth publish_topic: {publish_topic}'
+                                 f' for identifier: {point_topic} -- {e}')
+        for device_topic, points in poll_set.multi_depth.items():
+            try:
+                publish_wrapper(self.vip, f'{device_topic}/multi', headers=headers, message=[
+                    {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
+                    {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
+                ])
+            except Exception as e:
+                _log.warning(f'Failed to publish multi_depth device_topic: {device_topic} -- {e}')
+        for publish_topic, points in poll_set.multi_breadth.items():
+            try:
+                publish_wrapper(self.vip, f'{publish_topic}/multi', headers=headers, message=[
+                    {point.rsplit('/', 1)[-1]: results[point] for point in points if point in results},
+                    {point.rsplit('/', 1)[-1]: self.equipment_model.get_node(point).meta_data for point in points}
+                ])
+            except Exception as e:
+                _log.warning(f'Failed to publish multi_breadth publish_topic: {publish_topic} -- {e}')
 
     def heart_beat(self):
         if self.config.heart_beat_point is None:
