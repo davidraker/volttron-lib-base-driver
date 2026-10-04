@@ -32,6 +32,9 @@ envelope (``{'result': ..., 'error': ...}`` from the proxy's serializer, ``{'sta
 layer), the mapping of a reply onto per-topic results and errors, the three failure modes (unsendable request, gevent
 timeout, unexpected exception) and the push callback into :meth:`DriverAgent.publish_push`.
 
+Requests carry the instance's remote id in the header (protocol-proxy version 2), which is how the proxy knows which
+registered remote a read or write concerns; the identity fields appear only in the registration payload.
+
 Pushes are routed to the instance they concern. Each instance has a ``remote_id`` that it registers its push handler
 under and sends to the proxy with the registration; the proxy tags its pushes for that remote with the same id
 (protocol-proxy header version 2) and the manager delivers them to this instance's :meth:`receive_push`, which may
@@ -130,7 +133,8 @@ class ProxyBackedInterface:
         return {}
 
     def identity_fields(self) -> dict:
-        """The fields every message carries to identify this remote to the proxy."""
+        """The fields that identify this remote to the proxy at registration (connection details) and in log messages.
+        Later requests identify the remote by the header's remote id, not by payload fields."""
         return self.config.identity_fields()
 
     def reply_timeout(self) -> float:
@@ -152,7 +156,7 @@ class ProxyBackedInterface:
                   + (f' as {result}' if result else '') + '.')
 
     def read_payload(self, topics: list[str], **kwargs) -> dict:
-        return {**self.identity_fields(), 'topics': list(topics)}
+        return {'topics': list(topics)}
 
     def split_reads(self, topics: list[str], **kwargs) -> list[tuple[dict, list[str]]]:
         """``(payload, topics)`` per request; one request for everything by default."""
@@ -195,7 +199,7 @@ class ProxyBackedInterface:
         return value
 
     def write_payload(self, items: list[tuple[str, Any]], **kwargs) -> dict:
-        return {**self.identity_fields(), 'values': dict(items)}
+        return {'values': dict(items)}
 
     def split_writes(self, items: list[tuple[str, Any]], **kwargs) -> list[tuple[dict, list[tuple[str, Any]]]]:
         """``(payload, items)`` per request; one request for everything by default."""

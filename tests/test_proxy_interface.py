@@ -78,7 +78,7 @@ class Batched(Toy):
         return [(self.read_payload(topics[i:i + 2], **kwargs), topics[i:i + 2]) for i in range(0, len(topics), 2)]
 
     def split_writes(self, items, **kwargs):
-        return [({**self.identity_fields(), 'topic': t, 'value': v, **kwargs}, [(t, v)]) for t, v in items]
+        return [({'topic': t, 'value': v, **kwargs}, [(t, v)]) for t, v in items]
 
 
 def point(name, address, writable=False):
@@ -176,7 +176,8 @@ class TestReads:
         assert results == {T('a'): 1.0}
         assert errors == {T('b'): 'point offline', T('c'): 'not reported', T('d'): 'No value returned by the Toy Proxy.',
                           T('nope'): NOT_CONFIGURED}
-        assert ppm.payloads('READ_TOY') == [{'host': 'h', 'topics': [T('a'), T('b'), T('c'), T('d')]}]
+        assert ppm.payloads('READ_TOY') == [{'topics': [T('a'), T('b'), T('c'), T('d')]}]
+        assert all(m.remote_id == toy.remote_id for m in ppm.messages)             # the header names the remote
 
     def test_request_level_error_key(self, toy, ppm):
         ppm.queue(serialized({}, {'link': 'connection refused'}))
@@ -243,7 +244,7 @@ class TestWrites:
         assert results == {T('c'): 1.5}
         assert errors[T('d')] == 'refused' and errors[T('a')] == READ_ONLY and errors[T('nope')] == NOT_CONFIGURED
         assert 'Unable to convert' in errors[T('c')] or True       # the second value for c failed coercion before sending
-        assert ppm.payloads('WRITE_TOY') == [{'host': 'h', 'values': {T('c'): 1.5, T('d'): 2.0}}]
+        assert ppm.payloads('WRITE_TOY') == [{'values': {T('c'): 1.5, T('d'): 2.0}}]
         assert T('c') in toy._tracker.dirty_points
 
     def test_set_point_through_basic_revert(self, toy, ppm):
@@ -264,8 +265,8 @@ class TestWrites:
         ppm.queue(serialized({T('c'): 1}), serialized({T('d'): 1}))
         results, errors = toy.set_multiple_points([(T('c'), 1), (T('d'), 2)], priority=8)
         assert results == {T('c'): 1.0, T('d'): 2.0} and errors == {}
-        assert ppm.payloads('WRITE_TOY') == [{'host': 'h', 'topic': T('c'), 'value': 1.0, 'priority': 8},
-                                             {'host': 'h', 'topic': T('d'), 'value': 2.0, 'priority': 8}]
+        assert ppm.payloads('WRITE_TOY') == [{'topic': T('c'), 'value': 1.0, 'priority': 8},
+                                             {'topic': T('d'), 'value': 2.0, 'priority': 8}]
 
     def test_write_timeout_reports_every_item_of_the_batch(self, toy, ppm, monkeypatch):
         def slow(*_):
@@ -297,7 +298,7 @@ class TestWithoutBasicRevert:
         ppm.queue(serialized({T('a'): 5}), serialized({T('c'): 'ok'}))
         assert bare.get_multiple_points([T('a')]) == ({T('a'): 5}, {})
         assert bare.set_point(T('c'), 9, priority=8) == 9
-        assert ppm.payloads('WRITE_TOY') == [{'host': 'h', 'values': {T('c'): 9}}]
+        assert ppm.payloads('WRITE_TOY') == [{'values': {T('c'): 9}}]
         assert not hasattr(bare, '_tracker') and ppm.callbacks == {}
 
 
