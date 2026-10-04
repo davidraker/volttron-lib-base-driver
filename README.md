@@ -27,6 +27,18 @@ Install the library. You have two options. You can install this library using th
 poetry add --directory $VOLTTRON_HOME volttron-lib-base-driver
 ```
 
+## Proxy-backed interfaces
+
+Interfaces whose protocol runs in a [Protocol Proxy](https://github.com/eclipse-volttron/lib-protocol-proxy) process
+(BACnet, Modbus, DNP3, IEEE 2030.5) share `volttron.driver.base.proxy_interface.ProxyBackedInterface`: the manager
+wiring, the registration handshake, the reply envelope, the mapping of replies onto per-topic results and errors, the
+timeout and failure handling, and the push callback into `publish_push`. A protocol interface lists it first,
+`class Dnp3(ProxyBackedInterface, BasicRevert, BaseInterface)`, sets the message names as class attributes and
+overrides the few hooks whose defaults do not fit (`identity_fields`, `point_fields`, `read_payload`, `read_result`,
+`coerce`, `split_reads`, `split_writes`). `volttron.driver.base.testing` provides `FakePPM`, `serialized` and
+`build_interface` for testing such interfaces without a proxy process. The protocol proxy is an optional dependency:
+`pip install volttron-lib-base-driver[proxy]`.
+
 ## Development
 
 Please see the following for contributing guidelines [contributing](https://github.com/eclipse-volttron/volttron-core/blob/develop/CONTRIBUTING.md).
