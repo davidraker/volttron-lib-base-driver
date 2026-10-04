@@ -55,6 +55,7 @@ class FakePPM:
         self.sent: list[tuple[str, dict, bool]] = []
         self.replies: list = []
         self.callbacks: dict[str, Any] = {}
+        self.remote_callbacks: dict[tuple, Any] = {}
         self.peer = object()
         self.started = 0
         self.launch: tuple | None = None
@@ -66,8 +67,15 @@ class FakePPM:
         (``False``) is returned as the result of ``send`` itself, to simulate an unsendable request."""
         self.replies.extend(replies)
 
-    def register_callback(self, fn, name, provides_response=False, timeout=30.0):
-        self.callbacks[name] = fn
+    def register_callback(self, fn, name, provides_response=False, timeout=30.0, remote_id=None):
+        if remote_id is not None:
+            self.remote_callbacks[(name, remote_id)] = fn
+        else:
+            self.callbacks.setdefault(name, fn)             # first registration wins, as in the real manager
+
+    def unregister_callback(self, name, remote_id=None):
+        return (self.remote_callbacks.pop((name, remote_id), None) if remote_id is not None
+                else self.callbacks.pop(name, None)) is not None
 
     def start(self):
         self.started += 1

@@ -32,6 +32,13 @@ envelope (``{'result': ..., 'error': ...}`` from the proxy's serializer, ``{'sta
 layer), the mapping of a reply onto per-topic results and errors, the three failure modes (unsendable request, gevent
 timeout, unexpected exception) and the push callback into :meth:`DriverAgent.publish_push`.
 
+Pushes are routed to the instance they concern. Each instance has a ``remote_id`` that it registers its push handler
+under and sends to the proxy with the registration; the proxy tags its pushes for that remote with the same id
+(protocol-proxy header version 2) and the manager delivers them to this instance's :meth:`receive_push`, which may
+therefore use ``point_map`` and the rest of the instance's state (:meth:`handle_pushed`). The instance also offers
+itself as the method's fallback handler for pushes without a remote id (an older proxy); only the first instance's
+offer is kept, so :meth:`handle_pushed` must tolerate topics that belong to another instance in that case.
+
 A protocol interface subclasses this, sets the class attributes, and overrides the few hooks whose defaults do not
 fit: what identifies the remote (:meth:`identity_fields`), what a register contributes to the point table
 (:meth:`point_fields`), how requests are batched (:meth:`split_reads`, :meth:`split_writes`), how a reply entry becomes
@@ -53,6 +60,7 @@ import json
 import logging
 
 from typing import Any, Iterable
+from uuid import UUID, uuid4
 
 from gevent import Timeout
 from gevent.event import AsyncResult
@@ -91,6 +99,7 @@ class ProxyBackedInterface:
     # Set by init_proxy(); declared here so the attributes exist on any instance.
     ppm: GeventProtocolProxyManager | None = None
     proxy_peer: ProtocolProxyPeer | None = None
+    remote_id: UUID | None = None
 
     @property
     def proxy_label(self) -> str:
@@ -99,11 +108,13 @@ class ProxyBackedInterface:
     def init_proxy(self):
         """Attach to the protocol's shared manager and start it. The interface calls this at the end of ``__init__``."""
         self.proxy_peer = None
+        self.remote_id = uuid4()
         self.ppm = GeventProtocolProxyManager.get_manager(self.PROXY_NAME)
         if self.PUSH_METHOD:
-            # The manager is shared by every instance of the interface and keeps the first registration of a
-            # callback, so pushes for every remote arrive at one instance's handler. It therefore publishes by
-            # topic and never consults its own point_map.
+            # The manager is shared by every instance of the interface. Pushes tagged with this instance's remote id
+            # come here; untagged ones (an older proxy) go to whichever instance registered the fallback first.
+            self.ppm.register_callback(self.receive_push, self.PUSH_METHOD, provides_response=False,
+                                       remote_id=self.remote_id)
             self.ppm.register_callback(self.receive_push, self.PUSH_METHOD, provides_response=False)
         self.ppm.start()
         self.driver_agent.core.spawn(self.ppm.select_loop)
@@ -222,7 +233,9 @@ class ProxyBackedInterface:
         """Declare (or redeclare) the remote and its point table to the proxy, then run post-registration setup."""
         result: Any = {}
         if self.REGISTER_METHOD:
-            result, errors = self.request(self.REGISTER_METHOD, self.registration_payload(), [self.REQUEST_ERROR_KEY])
+            # The payload always carries remote_id: the proxy tags pushes for this remote with it.
+            payload = {**self.registration_payload(), 'remote_id': self.remote_id.hex}
+            result, errors = self.request(self.REGISTER_METHOD, payload, [self.REQUEST_ERROR_KEY])
             if errors:
                 _log.warning(f'Failed to register {self.identity_fields()} with the {self.proxy_label}: {errors}')
                 return
@@ -242,7 +255,12 @@ class ProxyBackedInterface:
         if error := message.get('error'):
             _log.warning(f'Error received with pushed values from the {self.proxy_label}: {error}')
         if result := message.get('result'):
-            self.driver_agent.publish_push(result)
+            self.handle_pushed(result)
+
+    def handle_pushed(self, values: dict[str, Any]):
+        """What to do with pushed ``{topic: value}`` pairs: publish them. A protocol may scale, coerce or filter first;
+        topics not in ``point_map`` may appear when this instance is the fallback handler for an untagged push."""
+        self.driver_agent.publish_push(values)
 
     # ---- transport -----------------------------------------------------------------------------------------------
     def _send(self, method_name: str, payload: dict, response_expected: bool = True):

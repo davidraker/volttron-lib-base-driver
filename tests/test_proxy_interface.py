@@ -103,6 +103,10 @@ class TestWiring:
     def test_constructor_attaches_to_the_shared_manager(self, ppm):
         toy = build_interface(Toy, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm)
         assert toy.ppm is ppm and ppm.started == 1 and 'RECEIVE_TOY' in ppm.callbacks and toy.proxy_peer is None
+        assert ppm.remote_callbacks == {('RECEIVE_TOY', toy.remote_id): toy.receive_push}
+        other = build_interface(Toy, {'driver_type': 'toy', 'host': 'h2'}, ppm=ppm)
+        assert other.remote_id != toy.remote_id and ppm.callbacks['RECEIVE_TOY'] == toy.receive_push   # fallback: first
+        assert ppm.remote_callbacks[('RECEIVE_TOY', other.remote_id)] == other.receive_push
         toy.driver_agent.core.spawn.assert_called_once_with(ppm.select_loop)
         assert toy.proxy_label == 'Toy Proxy'
 
@@ -119,7 +123,8 @@ class TestWiring:
         assert ppm.launch == (('toy', 'site'), {}) and ppm.registration_waits == [30.0] and toy.proxy_peer is ppm.peer
         [(method, payload, expects_reply)] = ppm.sent
         assert method == 'REGISTER_TOY' and expects_reply
-        assert payload == {'host': 'h', 'points': [{'topic': T(n), 'address': a} for n, a in (('a', 1), ('b', 2), ('c', 3), ('d', 4))]}
+        assert payload == {'host': 'h', 'remote_id': toy.remote_id.hex,
+                           'points': [{'topic': T(n), 'address': a} for n, a in (('a', 1), ('b', 2), ('c', 3), ('d', 4))]}
         assert toy.registered == [({'client': 'h', 'points': 4}, True)]
 
     def test_registration_failure_is_logged_and_skips_post_setup(self, ppm, caplog):
@@ -144,6 +149,14 @@ class TestPush:
     def test_pushed_values_are_published_by_topic(self, toy):
         toy.receive_push.__wrapped__(toy, None, serialized({T('a'): 1.5}))
         toy.driver_agent.publish_push.assert_called_once_with({T('a'): 1.5})
+
+    def test_handle_pushed_hook_sees_instance_state(self, ppm):
+        class Scaling(Toy):
+            def handle_pushed(self, values):
+                self.driver_agent.publish_push({t: v * 10 for t, v in values.items() if t in self.point_map})
+        toy = build_interface(Scaling, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm, points=POINTS)
+        toy.receive_push.__wrapped__(toy, None, serialized({T('a'): 1.5, 'elsewhere/x': 2}))
+        toy.driver_agent.publish_push.assert_called_once_with({T('a'): 15.0})
 
     def test_errors_logged_and_garbage_ignored(self, toy, caplog):
         with caplog.at_level(logging.WARNING):
