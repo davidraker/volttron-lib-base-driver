@@ -126,6 +126,7 @@ class TestWiring:
         assert payload == {'host': 'h', 'remote_id': toy.remote_id.hex,
                            'points': [{'topic': T(n), 'address': a} for n, a in (('a', 1), ('b', 2), ('c', 3), ('d', 4))]}
         assert toy.registered == [({'client': 'h', 'points': 4}, True)]
+        assert ppm.messages[-1].remote_id == toy.remote_id and ppm.messages[-1].protocol_version == 2   # stamped request
 
     def test_registration_failure_is_logged_and_skips_post_setup(self, ppm, caplog):
         toy = build_interface(Toy, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm)

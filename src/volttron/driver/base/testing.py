@@ -53,6 +53,7 @@ class FakePPM:
 
     def __init__(self, default_reply: bytes | None = None):
         self.sent: list[tuple[str, dict, bool]] = []
+        self.messages: list = []                            # the ProtocolProxyMessage objects as sent
         self.replies: list = []
         self.callbacks: dict[str, Any] = {}
         self.remote_callbacks: dict[tuple, Any] = {}
@@ -94,6 +95,7 @@ class FakePPM:
 
     def send(self, peer, message):
         self.sent.append((message.method_name, json.loads(message.payload.decode('utf8')), message.response_expected))
+        self.messages.append(message)
         reply = self.replies.pop(0) if self.replies else self.default_reply
         if isinstance(reply, (bytes, bytearray)):
             result = AsyncResult()

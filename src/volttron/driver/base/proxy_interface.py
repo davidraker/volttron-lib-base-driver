@@ -37,7 +37,8 @@ under and sends to the proxy with the registration; the proxy tags its pushes fo
 (protocol-proxy header version 2) and the manager delivers them to this instance's :meth:`receive_push`, which may
 therefore use ``point_map`` and the rest of the instance's state (:meth:`handle_pushed`). The instance also offers
 itself as the method's fallback handler for pushes without a remote id (an older proxy); only the first instance's
-offer is kept, so :meth:`handle_pushed` must tolerate topics that belong to another instance in that case.
+offer is kept, so :meth:`handle_pushed` must tolerate topics that belong to another instance in that case. Requests
+to the proxy carry the remote id too.
 
 A protocol interface subclasses this, sets the class attributes, and overrides the few hooks whose defaults do not
 fit: what identifies the remote (:meth:`identity_fields`), what a register contributes to the point table
@@ -264,9 +265,12 @@ class ProxyBackedInterface:
 
     # ---- transport -----------------------------------------------------------------------------------------------
     def _send(self, method_name: str, payload: dict, response_expected: bool = True):
+        """Send to the proxy. Every request is stamped with this instance's remote id, so a proxy may identify the
+        remote from the header as well as from the payload."""
         return self.ppm.send(self.proxy_peer, ProtocolProxyMessage(method_name=method_name,
                                                                    payload=json.dumps(payload).encode('utf8'),
-                                                                   response_expected=response_expected))
+                                                                   response_expected=response_expected,
+                                                                   remote_id=self.remote_id))
 
     def parse_proxy_response(self, response: Any, error_keys: Iterable[str]) -> tuple[Any, dict]:
         """Wait for and unpack a proxy reply: ``(result, errors)``.
