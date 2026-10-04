@@ -114,6 +114,10 @@ class PointConfig(EquipmentConfig):
     units_details: str = Field(default='', alias='Unit Details')
     volttron_point_name: str = Field(alias='Volttron Point Name')
     writable: Annotated[bool, empty_str_is(False)] = Field(default=False, alias='Writable')
+    # Server roles only: whether the remote peer may write this served point. None lets the interface default it from
+    # the protocol address (an output, an upward resource, a holding register). The platform's own right to set the
+    # point is ``writable``, as for any other point.
+    remote_writable: Annotated[bool | None, empty_str_is(None)] = Field(default=None, alias='Remote Writable')
 
     @field_validator('data_source', mode='before')
     @classmethod
@@ -136,6 +140,15 @@ class RemoteConfig(BaseModel):
     model_config = ConfigDict(extra='allow', populate_by_name=True, validate_assignment=True)
     debug: bool = False
     driver_type: str
+    # Which side of its protocol this remote is: the default ``client`` reaches a device (master, client); a server
+    # role (``server``, or a protocol's own word such as ``outstation``) serves the configured points to a remote peer.
+    # Each interface's configuration narrows the accepted values and validates the role-specific fields.
+    driver_role: str = 'client'
     heart_beat_point: str | None = None  # TODO: This needs to become a set (multiple devices could have multiple points).
     module: str | None = None
     plugins: list[str] = []
+
+    @field_validator('driver_role', mode='before')
+    @classmethod
+    def _normalize_driver_role(cls, v):
+        return v.strip().lower() if isinstance(v, str) and v.strip() else 'client' if v in (None, '') else v

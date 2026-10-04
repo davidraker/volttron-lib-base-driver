@@ -45,6 +45,13 @@ is told, forgets the peer and runs `finalize_setup` again after a growing delay 
 driver restart. Pushed values arriving by topic are checked twice, in `handle_pushed` (only the instance's own points)
 and in `DriverAgent.publish_push` (only points of that remote), so a proxy can only affect the points it serves.
 
+A remote configuration may name a `driver_role`. The default, `client`, reaches a device; a server role (`server`, or
+the protocol's own word such as `outstation`) serves the configured points to a remote peer through the same interface
+class and proxy. Each interface narrows the accepted values and validates the role-specific settings. In a server role
+the registry's `Remote Writable` column says which served points the peer may write (defaulting from the protocol
+address), while `Writable` keeps meaning that the platform may set the point; served rows default to the `server` data
+source, so they are never polled.
+
 ## Development
 
 Please see the following for contributing guidelines [contributing](https://github.com/eclipse-volttron/volttron-core/blob/develop/CONTRIBUTING.md).
