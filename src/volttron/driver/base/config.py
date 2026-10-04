@@ -27,14 +27,51 @@ from enum import Enum
 from pydantic import BaseModel, computed_field, ConfigDict, Field, field_serializer, field_validator, BeforeValidator
 from typing import Annotated
 
-# TODO: Wire up the data_source field to poll scheduling (everything is currently short-poll because this isn't used).
-# TODO: Should NEVER actually be an option? Could it just be None?
 class DataSource(Enum):
+    """How a point gets its value, and so how the poll scheduler treats it.
+
+    ============  =================================================================================================
+    SHORT_POLL    Polled at its polling interval in the device's regular cyclic schedule (the default).
+    LONG_POLL     Polled at its polling interval, but in a separate schedule so that very long intervals (totals,
+                  configuration registers) do not stretch the hyperperiod of the regular schedule.
+    POLL_ONCE     Read once when the device is set up or reconfigured (nameplate data), then never polled.
+    STATIC        Never read from a device: the value is configuration or whatever was last written to it.
+    NEVER_POLL    A device point the platform never polls; values arrive by push (change of value, unsolicited
+                  responses) or by an explicit get. ``never`` is accepted as an older spelling.
+    SERVER        A served point of a device in a server role: written by the platform and by the peer's pushes,
+                  never polled, seeded both ways when the device registers with its proxy.
+    ============  =================================================================================================
+
+    Points that are not ``scheduled`` are left out of the cyclic poll sets; points that are not ``polled`` are never
+    read by the scheduler at all, so their staleness is judged by any configured ``stale_timeout`` alone.
+    """
     SHORT_POLL = "short_poll"
     LONG_POLL = "long_poll"
-    NEVER = "never"
     POLL_ONCE = "poll_once"
     STATIC = "static"
+    NEVER_POLL = "never_poll"
+    SERVER = "server"
+
+    @property
+    def scheduled(self) -> bool:
+        """Polled on a cyclic schedule."""
+        return self in (DataSource.SHORT_POLL, DataSource.LONG_POLL)
+
+    @property
+    def polled(self) -> bool:
+        """Read from the device by the scheduler at some point (cyclically or once)."""
+        return self in (DataSource.SHORT_POLL, DataSource.LONG_POLL, DataSource.POLL_ONCE)
+
+    @classmethod
+    def normalize(cls, value):
+        """Accept a member, its value or its name in any case, with spaces or hyphens, and older spellings."""
+        if isinstance(value, cls):
+            return value
+        text = str(value).strip().lower().replace('-', '_').replace(' ', '_')
+        return cls.LEGACY_VALUES.get(text, text)
+
+
+DataSource.LEGACY_VALUES = {'never': 'never_poll'}
 
 
 def empty_str_is(default):
@@ -81,9 +118,7 @@ class PointConfig(EquipmentConfig):
     @field_validator('data_source', mode='before')
     @classmethod
     def _normalize_data_source(cls, v):
-        # TODO: This never converts to DataSource.
-        # TODO: Data Source enum needs something to tell Data Point how to serialize it, otherwise enable/disable will fail.
-        return v.lower()
+        return DataSource.normalize(v) if v is not None and v != '' else v
 
     @field_serializer('data_source')
     def _serialize_data_source(self, data_source):
