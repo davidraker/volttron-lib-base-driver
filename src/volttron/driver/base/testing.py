@@ -61,7 +61,18 @@ class FakePPM:
         self.started = 0
         self.launch: tuple | None = None
         self.registration_waits: list[float] = []
+        self.peer_lost_callbacks: list = []
         self.default_reply = serialized({}) if default_reply is None else default_reply
+
+    def on_peer_lost(self, callback):
+        self.peer_lost_callbacks.append(callback)
+
+    def lose_peer(self, reason: str = 'process exited with code 1'):
+        """Simulate the current proxy process dying: a fresh peer replaces it and the listeners are told."""
+        lost, self.peer = self.peer, object()
+        for callback in list(self.peer_lost_callbacks):
+            callback(lost, reason)
+        return lost
 
     def queue(self, *replies):
         """Replies in the order the interface will consume them: ``bytes`` become an AsyncResult; anything else

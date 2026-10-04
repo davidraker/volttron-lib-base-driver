@@ -55,6 +55,12 @@ BasicRevert's tracking ``set_point`` and ``get_multiple_points``; without BasicR
 interface implements ``revert_point`` and ``revert_all`` itself. The interface's ``__init__`` calls
 ``BaseInterface.__init__`` (and ``BasicRevert.__init__``) and then :meth:`init_proxy`.
 
+The manager watches the proxy processes it launches. When this instance's proxy exits or fails to register, the
+manager tells the instance (:meth:`_proxy_peer_lost`), which forgets the peer and, after a growing delay
+(``RECOVERY_DELAYS``), runs :meth:`finalize_setup` again: the first instance to do so relaunches the proxy, every
+instance registers its remote again, and a server-role proxy pushes its table back. Requests made before that fail
+as unsendable, as they would for any proxy that is down.
+
 The protocol proxy library is VOLTTRON-independent; this module is the driver framework's way of using it, which is
 why it lives here and ``protocol-proxy`` is an optional dependency of the base driver.
 """
@@ -66,7 +72,7 @@ import logging
 from typing import Any, Iterable
 from uuid import UUID, uuid4
 
-from gevent import Timeout
+from gevent import Timeout, sleep
 from gevent.event import AsyncResult
 
 from protocol_proxy.ipc import ProtocolProxyMessage, ProtocolProxyPeer, callback
@@ -99,6 +105,8 @@ class ProxyBackedInterface:
     PUSH_METHOD: str | None = None
     #: Key under which the proxy reports a whole-request failure in its ``error`` mapping.
     REQUEST_ERROR_KEY: str = 'request'
+    #: Seconds to wait before re-running finalize_setup after the 1st, 2nd, ... consecutive loss of the proxy.
+    RECOVERY_DELAYS: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0, 30.0)
 
     # Set by init_proxy(); declared here so the attributes exist on any instance.
     ppm: GeventProtocolProxyManager | None = None
@@ -113,7 +121,9 @@ class ProxyBackedInterface:
         """Attach to the protocol's shared manager and start it. The interface calls this at the end of ``__init__``."""
         self.proxy_peer = None
         self.remote_id = uuid4()
+        self._recovery_attempts = 0
         self.ppm = GeventProtocolProxyManager.get_manager(self.PROXY_NAME)
+        self.ppm.on_peer_lost(self._proxy_peer_lost)
         if self.PUSH_METHOD:
             # The manager is shared by every instance of the interface. Pushes tagged with this instance's remote id
             # come here; untagged ones (an older proxy) go to whichever instance registered the fallback first.
@@ -244,7 +254,24 @@ class ProxyBackedInterface:
             if errors:
                 _log.warning(f'Failed to register {self.identity_fields()} with the {self.proxy_label}: {errors}')
                 return
+        self._recovery_attempts = 0
         self.after_registration(result if isinstance(result, dict) else {}, initial_setup)
+
+    def _proxy_peer_lost(self, peer: ProtocolProxyPeer, reason: str):
+        """The manager reports that a proxy is gone. If it was ours, forget it and set up again after a delay."""
+        if peer is None or peer is not self.proxy_peer:
+            return
+        self.proxy_peer = None
+        delay = self.RECOVERY_DELAYS[min(self._recovery_attempts, len(self.RECOVERY_DELAYS) - 1)]
+        self._recovery_attempts += 1
+        _log.warning(f'{self.proxy_label} for {self.identity_fields()} lost ({reason}).'
+                     f' Setting up again in {delay:g} s (attempt {self._recovery_attempts}).')
+        self.driver_agent.core.spawn(self._recover_proxy, delay)
+
+    def _recover_proxy(self, delay: float):
+        sleep(delay)
+        if self.proxy_peer is None:         # unless already set up again by someone else in the meantime
+            self.finalize_setup(initial_setup=False)
 
     @callback
     def receive_push(self, _, raw_message: bytes):

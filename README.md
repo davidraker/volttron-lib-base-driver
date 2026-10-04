@@ -39,6 +39,12 @@ overrides the few hooks whose defaults do not fit (`identity_fields`, `point_fie
 `build_interface` for testing such interfaces without a proxy process. The protocol proxy is an optional dependency:
 `pip install volttron-lib-base-driver[proxy]`.
 
+The proxy manager watches the processes it launches. When an interface's proxy exits or never registers, the interface
+is told, forgets the peer and runs `finalize_setup` again after a growing delay (`RECOVERY_DELAYS`: 1, 2, 5, 10, then
+30 seconds between attempts): the proxy is relaunched and every remote registers with it again, without a platform
+driver restart. Pushed values arriving by topic are checked twice, in `handle_pushed` (only the instance's own points)
+and in `DriverAgent.publish_push` (only points of that remote), so a proxy can only affect the points it serves.
+
 ## Development
 
 Please see the following for contributing guidelines [contributing](https://github.com/eclipse-volttron/volttron-core/blob/develop/CONTRIBUTING.md).

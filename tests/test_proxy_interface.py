@@ -146,6 +146,61 @@ class TestWiring:
         assert ppm.sent == [] and ppm.launch == (('toy',), {'port': 47808}) and toy.registered == [({}, True)]
 
 
+class TestRecovery:
+    @pytest.fixture(autouse=True)
+    def instant(self, monkeypatch):
+        monkeypatch.setattr('volttron.driver.base.proxy_interface.sleep', lambda s: None)
+
+    @staticmethod
+    def run_spawned(toy):
+        """The interface hands the delayed recovery to core.spawn; run what it spawned."""
+        (fn, *args), _ = toy.driver_agent.core.spawn.call_args
+        toy.driver_agent.core.spawn.reset_mock()
+        fn(*args)
+
+    def test_losing_our_proxy_sets_up_again_with_a_delay(self, ppm, caplog):
+        toy = build_interface(Toy, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm, points=POINTS)
+        toy.finalize_setup(initial_setup=True)
+        toy.driver_agent.core.spawn.reset_mock()
+        with caplog.at_level(logging.WARNING):
+            old = ppm.lose_peer('process exited with code 9')
+        assert toy.proxy_peer is None and 'exited with code 9' in caplog.text and 'in 1 s' in caplog.text
+        toy.driver_agent.core.spawn.assert_called_once_with(toy._recover_proxy, 1.0)
+        self.run_spawned(toy)
+        assert toy.proxy_peer is ppm.peer and toy.proxy_peer is not old
+        assert ppm.methods() == ['REGISTER_TOY', 'REGISTER_TOY'] and toy.registered[-1] == ({}, False)
+        assert toy._recovery_attempts == 0                                     # success resets the backoff
+
+    def test_consecutive_losses_back_off_until_registration_succeeds(self, ppm):
+        toy = build_interface(Toy, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm)
+        toy.finalize_setup()
+        toy.driver_agent.core.spawn.reset_mock()
+        delays = []
+        for _ in range(7):
+            ppm.queue(serialized({}, {'link': 'refused'}))                     # registration keeps failing
+            ppm.lose_peer()
+            delays.append(toy.driver_agent.core.spawn.call_args[0][1])
+            self.run_spawned(toy)
+        assert delays == [1.0, 2.0, 5.0, 10.0, 30.0, 30.0, 30.0]
+        ppm.lose_peer()
+        self.run_spawned(toy)                                                  # default reply: success
+        assert toy._recovery_attempts == 0
+
+    def test_another_proxys_loss_is_ignored(self, toy):
+        toy.driver_agent.core.spawn.reset_mock()
+        toy._proxy_peer_lost(object(), 'not ours')
+        assert toy.proxy_peer is not None and toy.driver_agent.core.spawn.call_count == 0
+
+    def test_recovery_is_skipped_if_already_set_up_again(self, ppm):
+        toy = build_interface(Toy, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm)
+        toy.finalize_setup()
+        ppm.lose_peer()
+        toy.finalize_setup()                                                   # e.g. a configuration update
+        sent = len(ppm.sent)
+        self.run_spawned(toy)
+        assert len(ppm.sent) == sent
+
+
 class TestPush:
     def test_pushed_values_are_published_by_topic(self, toy):
         toy.receive_push.__wrapped__(toy, None, serialized({T('a'): 1.5}))

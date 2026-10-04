@@ -32,7 +32,7 @@ ignore_missing_imports = true
 
 [tool.poetry]
 name = "volttron-lib-base-driver"
-version = "2.0.0rc6"
+version = "2.0.0rc7"
 description = "Volttron Driver libraries used to support development within the Volttron Driver Framework."
 authors = ["VOLTTRON Team <volttron@pnnl.gov>"]
 license = "Apache-2.0"
@@ -56,7 +56,7 @@ pydantic-core = ">=2.23.4"
 python = ">=3.10,<4.0"
 volttron-core = ">=2.0.0rc36"
 # Only ProxyBackedInterface (volttron.driver.base.proxy_interface) and its test helpers need the protocol proxy.
-protocol-proxy = { version = ">=2.0.0rc3", optional = true }
+protocol-proxy = { version = ">=2.0.0rc4", optional = true }
 
 [tool.poetry.extras]
 proxy = ["protocol-proxy"]
