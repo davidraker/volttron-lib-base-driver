@@ -151,6 +151,16 @@ class TestPush:
         toy.receive_push.__wrapped__(toy, None, serialized({T('a'): 1.5}))
         toy.driver_agent.publish_push.assert_called_once_with({T('a'): 1.5})
 
+    def test_foreign_topics_are_dropped_with_a_warning(self, toy, caplog):
+        with caplog.at_level(logging.WARNING):
+            toy.receive_push.__wrapped__(toy, None, serialized({T('a'): 1.5, 'elsewhere/x': 2, T('nope'): 3}))
+        toy.driver_agent.publish_push.assert_called_once_with({T('a'): 1.5})
+        assert 'does not serve' in caplog.text and 'elsewhere/x' in caplog.text
+        toy.driver_agent.publish_push.reset_mock()
+        with caplog.at_level(logging.WARNING):
+            toy.receive_push.__wrapped__(toy, None, serialized({'elsewhere/x': 2}))
+        toy.driver_agent.publish_push.assert_not_called()                       # nothing of ours: nothing published
+
     def test_handle_pushed_hook_sees_instance_state(self, ppm):
         class Scaling(Toy):
             def handle_pushed(self, values):

@@ -40,8 +40,8 @@ under and sends to the proxy with the registration; the proxy tags its pushes fo
 (protocol-proxy header version 2) and the manager delivers them to this instance's :meth:`receive_push`, which may
 therefore use ``point_map`` and the rest of the instance's state (:meth:`handle_pushed`). The instance also offers
 itself as the method's fallback handler for pushes without a remote id (an older proxy); only the first instance's
-offer is kept, so :meth:`handle_pushed` must tolerate topics that belong to another instance in that case. Requests
-to the proxy carry the remote id too.
+offer is kept, and :meth:`handle_pushed` publishes only this instance's own topics, so an untagged push for another
+instance's points is dropped with a warning. Requests to the proxy carry the remote id too.
 
 A protocol interface subclasses this, sets the class attributes, and overrides the few hooks whose defaults do not
 fit: what identifies the remote (:meth:`identity_fields`), what a register contributes to the point table
@@ -263,9 +263,18 @@ class ProxyBackedInterface:
             self.handle_pushed(result)
 
     def handle_pushed(self, values: dict[str, Any]):
-        """What to do with pushed ``{topic: value}`` pairs: publish them. A protocol may scale, coerce or filter first;
-        topics not in ``point_map`` may appear when this instance is the fallback handler for an untagged push."""
-        self.driver_agent.publish_push(values)
+        """What to do with pushed ``{topic: value}`` pairs: publish the ones that are this remote's points.
+
+        A proxy is trusted to speak its protocol, not to name points it does not serve, so topics outside
+        ``point_map`` are logged and dropped (the driver agent applies the same rule again). A protocol may override
+        this to scale, coerce or filter before publishing.
+        """
+        mine = {topic: value for topic, value in values.items() if topic in self.point_map}
+        if foreign := sorted(set(values) - set(mine)):
+            _log.warning(f'{self.proxy_label}: ignoring pushed values for topics this remote does not serve: '
+                         f'{foreign[:5]}{" ..." if len(foreign) > 5 else ""}')
+        if mine:
+            self.driver_agent.publish_push(mine)
 
     # ---- transport -----------------------------------------------------------------------------------------------
     def _send(self, method_name: str, payload: dict, response_expected: bool = True):
