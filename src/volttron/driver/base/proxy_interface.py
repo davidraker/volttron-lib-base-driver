@@ -160,6 +160,21 @@ class ProxyBackedInterface:
         return {**self.identity_fields(),
                 'points': [self.point_fields(topic, register) for topic, register in self.point_map.items()]}
 
+    def tree_values(self) -> dict[str, Any]:
+        """The equipment tree's current value of each of this remote's points that has one (``last_value`` of points
+        that were ever updated). A server role sends these with its registration so a proxy that lost its served values
+        (a restart) takes them back from the platform's memory; the proxy applies them only to points it holds no value
+        for, then pushes its whole table."""
+        tree = getattr(self.driver_agent, 'equipment_model', None)
+        if tree is None or not callable(getattr(tree, 'get_node', None)):
+            return {}
+        values = {}
+        for topic in self.point_map:
+            node = tree.get_node(topic)
+            if node is not None and getattr(node, 'last_updated', None) is not None:
+                values[topic] = node.last_value
+        return values
+
     def after_registration(self, result: dict, initial_setup: bool):
         """Called once the remote is registered (or, without a REGISTER_METHOD, once the proxy is up)."""
         _log.info(f'{self.proxy_label}: {self.identity_fields()} registered'

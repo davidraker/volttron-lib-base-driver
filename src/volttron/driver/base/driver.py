@@ -254,6 +254,8 @@ class DriverAgent:
                 device_depth_topic, device_breadth_topic = et.get_device_topics(point_topic)
                 if et.is_active(point_topic):
                     point_node.last_value = value
+                    if (record := getattr(et, 'record_pushed_value', None)) is not None:
+                        record(point_node)          # the platform driver keeps served points' values across restarts
                 if et.is_published_single_depth(point_topic):
                     publish_wrapper(self.vip, point_depth_topic, headers, [value, point_node.meta_data])
                 if et.is_published_single_breadth(point_topic):

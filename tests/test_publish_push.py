@@ -66,3 +66,16 @@ def test_inactive_point_is_published_but_not_stored():
     with mock.patch('volttron.driver.base.driver.publish_wrapper') as publish:
         DriverAgent.publish_push(me, {f'{BESS}/SOC': 9})
     assert nodes[f'{BESS}/SOC'].last_value is None and publish.call_count == 2
+
+
+def test_stored_values_are_recorded_when_the_model_offers_it(caplog):
+    me, nodes, model = _world()
+    inactive = nodes[f'{BESS}/Power']
+    model.is_active.side_effect = lambda t: not t.endswith('Power')
+    with mock.patch('volttron.driver.base.driver.publish_wrapper'):
+        DriverAgent.publish_push(me, {f'{BESS}/SOC': 1, f'{BESS}/Power': 2})
+    model.record_pushed_value.assert_called_once_with(nodes[f'{BESS}/SOC'])      # stored points only, not inactive ones
+    del model.record_pushed_value
+    with mock.patch('volttron.driver.base.driver.publish_wrapper'):
+        DriverAgent.publish_push(me, {f'{BESS}/SOC': 3})                           # a model without the hook is fine
+    assert nodes[f'{BESS}/SOC'].last_value == 3

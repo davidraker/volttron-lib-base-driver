@@ -1,6 +1,8 @@
 """ProxyBackedInterface through a toy protocol: the manager wiring, registration, pushes, batching and every failure mode."""
 import logging
 
+from types import SimpleNamespace
+
 import pytest
 
 from gevent import Timeout
@@ -144,6 +146,17 @@ class TestWiring:
         toy = build_interface(Unregistered, {'driver_type': 'toy', 'host': 'h'}, ppm=ppm)
         toy.finalize_setup(initial_setup=True)
         assert ppm.sent == [] and ppm.launch == (('toy',), {'port': 47808}) and toy.registered == [({}, True)]
+
+
+class TestTreeValues:
+    def test_without_an_equipment_model_there_are_no_values(self, toy):
+        assert toy.tree_values() == {}
+
+    def test_values_of_updated_points_only(self, toy):
+        nodes = {T('a'): SimpleNamespace(last_value=1.5, last_updated=object()),
+                 T('b'): SimpleNamespace(last_value=None, last_updated=None)}       # never updated
+        toy.driver_agent.equipment_model = SimpleNamespace(get_node=lambda topic: nodes.get(topic))
+        assert toy.tree_values() == {T('a'): 1.5}
 
 
 class TestRecovery:

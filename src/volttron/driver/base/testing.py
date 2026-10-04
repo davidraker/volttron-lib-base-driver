@@ -142,7 +142,7 @@ def build_interface(interface_class, remote: dict, *, driver_agent=None, ppm: Fa
     """
     from volttron.driver.base.config import RemoteConfig
     ppm = ppm if ppm is not None else FakePPM()
-    driver_agent = driver_agent if driver_agent is not None else mock.Mock()
+    driver_agent = driver_agent if driver_agent is not None else mock.Mock(equipment_model=None)
     interface_class.default_config = {}
     with mock.patch('volttron.driver.base.proxy_interface.GeventProtocolProxyManager') as manager_class:
         manager_class.get_manager.return_value = ppm
