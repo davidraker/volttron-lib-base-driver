@@ -25,11 +25,10 @@
 import logging
 from unittest import mock
 import pytest
-import pytz
 import sys
 
 from copy import copy
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from importlib.metadata import distribution, PackageNotFoundError
 from pathlib import Path
 # These tests predate the PollScheduler refactor (41a7b2b): they build DriverAgent(parent, config, time_slot, ...)
@@ -161,7 +160,7 @@ def test_setup_device_should_raise_value_error_on_non_base_interface_module():
 
 
 def test_periodic_read_should_succeed():
-    now = pytz.UTC.localize(datetime.utcnow())
+    now = datetime.now(timezone.utc)
 
     with base_driver_agent(has_core_schedule=True,
                            meta_data={"foo": "bar"},
@@ -178,7 +177,7 @@ def test_periodic_read_should_succeed():
 
 @pytest.mark.parametrize("scrape_all_response", [{}, Exception()])
 def test_periodic_read_should_return_none_on_scrape_response(scrape_all_response):
-    now = pytz.UTC.localize(datetime.utcnow())
+    now = datetime.now(timezone.utc)
 
     with base_driver_agent(has_core_schedule=True,
                            meta_data={"foo": "bar"},
