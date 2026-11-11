@@ -79,6 +79,7 @@ from protocol_proxy.ipc import ProtocolProxyMessage, ProtocolProxyPeer, callback
 from protocol_proxy.manager.gevent import GeventProtocolProxyManager
 
 from .interfaces import BaseRegister, DriverInterfaceError
+from .transforms import TransformTable
 
 _log = logging.getLogger(__name__)
 
@@ -168,11 +169,22 @@ class ProxyBackedInterface:
         tree = getattr(self.driver_agent, 'equipment_model', None)
         if tree is None or not callable(getattr(tree, 'get_node', None)):
             return {}
+        # The tree holds engineering values; the proxy's registers hold raw ones (a point's Transform column).
+        transforms = getattr(self.driver_agent, 'transforms', None)
+        if not isinstance(transforms, TransformTable):
+            transforms = None
         values = {}
         for topic in self.point_map:
             node = tree.get_node(topic)
             if node is not None and getattr(node, 'last_updated', None) is not None:
-                values[topic] = node.last_value
+                value = node.last_value
+                if transforms is not None and topic in transforms:
+                    try:
+                        value = self.driver_agent.to_raw(topic, value)
+                    except DriverInterfaceError as e:
+                        _log.warning(f'{self.proxy_label}: not seeding {topic} from the equipment tree: {e}')
+                        continue
+                values[topic] = value
         return values
 
     def after_registration(self, result: dict, initial_setup: bool):
@@ -274,6 +286,10 @@ class ProxyBackedInterface:
             if errors:
                 _log.warning(f'Failed to register {self.identity_fields()} with the {self.proxy_label}: {errors}')
                 return
+        if self._recovery_attempts:
+            health = getattr(self.driver_agent, 'health', None)
+            if hasattr(health, 'note'):
+                health.note(f'{self.proxy_label} recovered; remote registered again')
         self._recovery_attempts = 0
         self.after_registration(result if isinstance(result, dict) else {}, initial_setup)
 
@@ -284,6 +300,9 @@ class ProxyBackedInterface:
         self.proxy_peer = None
         delay = self.RECOVERY_DELAYS[min(self._recovery_attempts, len(self.RECOVERY_DELAYS) - 1)]
         self._recovery_attempts += 1
+        health = getattr(self.driver_agent, 'health', None)
+        if hasattr(health, 'note'):
+            health.note(f'{self.proxy_label} lost ({reason}); recovery attempt {self._recovery_attempts} in {delay:g} s')
         _log.warning(f'{self.proxy_label} for {self.identity_fields()} lost ({reason}).'
                      f' Setting up again in {delay:g} s (attempt {self._recovery_attempts}).')
         self.driver_agent.core.spawn(self._recover_proxy, delay)

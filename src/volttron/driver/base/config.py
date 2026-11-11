@@ -40,6 +40,10 @@ class DataSource(Enum):
                   responses) or by an explicit get. ``never`` is accepted as an older spelling.
     SERVER        A served point of a device in a server role: written by the platform and by the peer's pushes,
                   never polled, seeded both ways when the device registers with its proxy.
+    VIRTUAL       A point the framework holds, not the device (like a BACnet value object): its value is set by the
+                  platform when the row is writable, or computed from other points by its Transform (``sum_of``,
+                  ``value_of``, ``writable_bit`` ...), which may also direct its writes to a real point. Never handed
+                  to the interface and never polled.
     ============  =================================================================================================
 
     Points that are not ``scheduled`` are left out of the cyclic poll sets; points that are not ``polled`` are never
@@ -51,6 +55,7 @@ class DataSource(Enum):
     STATIC = "static"
     NEVER_POLL = "never_poll"
     SERVER = "server"
+    VIRTUAL = "virtual"
 
     @property
     def scheduled(self) -> bool:
@@ -72,6 +77,20 @@ class DataSource(Enum):
 
 
 DataSource.LEGACY_VALUES = {'never': 'never_poll'}
+
+
+def accepted_columns(model: type[BaseModel]) -> set[str]:
+    """Every column name a registry row may use for ``model``: field names, aliases and validation alias choices.
+    The platform driver warns about columns outside this set."""
+    names: set[str] = set()
+    for name, field in model.model_fields.items():
+        names.add(name)
+        for alias in (field.alias, field.validation_alias):
+            if isinstance(alias, str):
+                names.add(alias)
+            elif alias is not None and hasattr(alias, 'choices'):
+                names.update(str(choice) for choice in alias.choices)
+    return names
 
 
 def empty_str_is(default):
@@ -120,6 +139,10 @@ class PointConfig(EquipmentConfig):
     # the protocol address (an output, an upward resource, a holding register). The platform's own right to set the
     # point is ``writable``, as for any other point.
     remote_writable: Annotated[bool | None, empty_str_is(None)] = Field(default=None, alias='Remote Writable')
+    # A transform between the raw value the protocol carries and the engineering value the platform publishes and
+    # accepts: one function call (``scale(0.001)``) or a ``transform(...)`` sequence of the icm.transforms library.
+    # Compiled and applied by DriverAgent around the interface; see volttron.driver.base.transforms.
+    transform: str = Field(default='', alias='Transform')
 
     @field_validator('data_source', mode='before')
     @classmethod

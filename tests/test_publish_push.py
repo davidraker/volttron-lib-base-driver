@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from volttron.driver.base.driver import DriverAgent
+from volttron.driver.base.transforms import TransformTable
 
 BESS = 'devices/PNNL/SEB/BESS'
 
@@ -15,7 +16,8 @@ def _point(topic, active=True):
 
 def _world():
     """A remote with two points, a device node, a point owned by another remote and nothing else."""
-    me, other = SimpleNamespace(unique_id='me', vip=object()), SimpleNamespace(unique_id='other')
+    me, other = DriverAgent.__new__(DriverAgent), SimpleNamespace(unique_id='other')
+    me.unique_id, me.vip, me.transforms = 'me', object(), TransformTable('me')
     nodes = {f'{BESS}/SOC': _point(f'{BESS}/SOC'), f'{BESS}/Power': _point(f'{BESS}/Power'),
              BESS: SimpleNamespace(identifier=BESS, is_point=False, meta_data={}),
              'devices/X/P': _point('devices/X/P')}

@@ -58,6 +58,68 @@ the registry's `Remote Writable` column says which served points the peer may wr
 address), while `Writable` keeps meaning that the platform may set the point; served rows default to the `server` data
 source, so they are never polled.
 
+## Point transforms
+
+A registry row may carry a `Transform` column: a conversion between the raw value the protocol carries and the
+engineering value the platform publishes and accepts. Reads apply it, writes apply its inverse, and the interface never
+sees the engineering value, so every interface gets it for free. The functions are those of the `icm.transforms`
+library (`icm-lib-transforms`), which the base driver depends on.
+
+| CSV value | Meaning |
+|---|---|
+| `scale(0.001)` | one function: the modbus_tk form |
+| `sunssf(W_SF)` | SunSpec scale factor held by the point `W_SF` of the same device; -32768 counts as unavailable |
+| `scale_reg(Div)`, `scale_reg_pow_10(Exp)` | scaled by another point's value, or by ten to its power |
+| `transform(scale(0.1), add(-40))` | a sequence, applied left to right on read and right to left on write |
+| `transform(mod10k(True), cast_value(int))` | a sequence ending in a type change |
+| `sum_of(A, B)`, `mean_of(A, C)`, `all_equal_of(3, A, B)` | a derived (`virtual`) point computed from other points (see below) |
+| `transform(value_of(Status), bit(3))` | a derived point from one other point: here bit 3 of a status word as a point of its own, with no second register at the address |
+| `writable_bit(Status, 3)` | the same bit, writable: a write sets or clears it in the word and writes the word to `Status` |
+| `invalid(-32768)`, `finite()` | a device's "not implemented" or error sentinel (SunSpec: `0x8000` for int16, `0xFFFF` for uint16, NaN for float32) yields no value instead of a number; put first in a chain so it is not scaled |
+
+A bare comma-separated list (`scale(0.1), add(-40)`) is rejected; the error shows the wrapped form. The full function
+set (arithmetic, comparisons, rounding, bits, enumeration `map`, the modbus_tk functions) is the library's.
+
+* **Configure time.** Each point's expression is compiled once. An unknown function, a bad argument, a reference to a
+  point the device does not have, or a reference cycle is logged as an error and the point is configured without a
+  transform, so the rest of the device still works. A writable point whose chain has no inverse is warned about;
+  writes to it are refused.
+* **Scale factors.** A referenced point must be in the same device's registry, named by its `Volttron Point Name`
+  or, failing that, by the one row whose `Register Name` or `Reference Point Name` it is (a modbus_tk register map
+  names its own registers while each device's registry chooses the published names). Its value is taken from the
+  current read when it is polled in the same request, else from its last value. When it has no value anywhere the point is
+  held out: no value is published and the read's errors name the missing factor, logged once until it appears.
+  Referenced points that are polled are read once at start-up (with the `poll_once` points) so a last value exists
+  before the first cyclic poll; a `never_poll` reference is honoured with a warning.
+* **Virtual and derived points.** A row with `Data Source` `virtual` is held by the framework, never by the interface,
+  and needs no address or type. Without a transform it is a value the platform sets (when `Writable`), as a BACnet value
+  object is. With a transform made only of functions over other registers (`sum_of`, `mean_of`, `min_of`, `max_of`,
+  `all_equal_of`, `all_of`, `any_of`, or `value_of` for a single one) it is a derived point: computed and published
+  whenever a read includes any point it references, computed from last values on an RPC `get`, and not writable.
+  `writable_bit(Status, 3)` is a derived bit that can be written: the write sets or clears the bit in the word's last
+  value (or a fresh read with `writable_bit(Status, 3, True)`) and writes the word to `Status`. Numbers among the
+  arguments are literals; a string literal is written `literal('ON')` and an all-digit point name `reg_name(3)`.
+* **Metadata.** The published type follows the transform (`scale` yields a float, `equals` a boolean); units are the
+  column's and are not touched. `Default Value` and revert stay in the raw domain.
+* **Served roles.** The platform's writes to a served point get the inverse, the peer's writes arrive through the push
+  path and get the forward transform, and the values seeded into a proxy from the equipment tree are inverted first.
+
+## Remote health
+
+Every `DriverAgent` keeps a `RemoteHealth` record from its own traffic: status `UNKNOWN` until the first poll, `GOOD`
+while polls return values, `BAD` once a poll returns nothing or raises; poll and write counters, consecutive failures,
+the last success and failure times, the last error, the points that failed in the latest poll with their messages,
+and recent events (a proxy process lost or recovered). An interface may add what its protocol knows by defining
+`health()` returning a dict (the Modbus driver returns the proxy's connection counters, the write functions the unit
+refused and the device identification). `DriverAgent.health_report()` returns both; the platform driver exposes it as
+the `health` RPC and `vctl driver health`, and sets `health.on_change` to be told when a remote changes status.
+
+## Registry rows that cannot be configured
+
+A row that fails validation, or whose register the interface cannot create, is logged with the point name and dropped;
+the rest of the device configures. Registry columns the interface does not define are listed once per device in a
+warning, with the interface's hint for legacy columns where it has one.
+
 ## Development
 
 Please see the following for contributing guidelines [contributing](https://github.com/eclipse-volttron/volttron-core/blob/develop/CONTRIBUTING.md).

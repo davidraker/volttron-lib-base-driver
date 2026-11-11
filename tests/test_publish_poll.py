@@ -17,7 +17,9 @@ def _stub_remote():
 
 
 def _poll_set(**multi_depth):
-    return SimpleNamespace(single_depth=set(), single_breadth=set(), multi_depth=multi_depth, multi_breadth={})
+    points = {topic for topics in multi_depth.values() for topic in topics}
+    return SimpleNamespace(points=points, single_depth=set(), single_breadth=set(), multi_depth=multi_depth,
+                           multi_breadth={})
 
 
 def test_multi_publish_skipped_when_no_values_for_that_device(caplog):
@@ -46,6 +48,7 @@ def test_partial_results_still_publish():
 def test_breadth_multi_publish_skipped_when_empty(caplog):
     poll_set = _poll_set()
     poll_set.multi_breadth = {'devices/METER/BESS/SEB/PNNL': {f'{METER}/Watts'}}
+    poll_set.points = {f'{METER}/Watts'}
     with mock.patch('volttron.driver.base.driver.publish_wrapper') as publish, caplog.at_level(logging.WARNING):
         DriverAgent.publish_poll(_stub_remote(), {}, poll_set)
     assert publish.call_count == 0 and 'Skipping the devices/METER/BESS/SEB/PNNL/multi publish' in caplog.text
@@ -57,7 +60,7 @@ def test_point_set_and_registration_use_only_the_devices_own_points():
     model.device_points.return_value = bess_points
     model.points.return_value = bess_points + [mock.Mock(identifier=f'{METER}/Watts', config='watts-config')]
     device_node = mock.Mock(identifier=BESS)
-    remote = SimpleNamespace(equipment_model=model, equipment=set(), add_registers=mock.Mock())
+    remote = SimpleNamespace(equipment_model=model, equipment=set(), add_registers=mock.Mock(), interface=SimpleNamespace())
     DriverAgent.add_equipment(remote, device_node)
     remote.add_registers.assert_called_once_with(['soc-config'], BESS)
     assert DriverAgent.point_set.fget(remote) == set(bess_points)
