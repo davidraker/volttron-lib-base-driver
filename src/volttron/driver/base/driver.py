@@ -365,9 +365,8 @@ class DriverAgent:
                 lookup = self._lookup({entry.write_target: current})
             target, target_value = self.transforms.write_through(topic, value, lookup)
             self.set_point(target, target_value, **kwargs)
-            published = self.transforms.forward_or_none(topic, None, self._lookup({target: target_value}))
-            if published is None:
-                published = value
+            computed, _ = self.transforms.compute([topic], self._lookup({target: target_value}))
+            published = computed.get(topic, value)
         else:
             register = self.virtual[topic]
             if register.read_only:

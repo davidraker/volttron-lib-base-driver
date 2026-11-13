@@ -502,9 +502,12 @@ class TestDerived:
         with mock.patch('volttron.driver.base.driver.publish_wrapper'):
             agent.set_point(T('Run'), False)                               # read=True: the fresh word is used
         assert agent.interface.raw[T('Status')] == 0b1110
+        with mock.patch('volttron.driver.base.driver.publish_wrapper'):
+            assert agent.set_point(T('Fault'), 'false') is False          # a text value (vctl) echoes the computed bit
+        assert agent.interface.raw[T('Status')] == 0b0001                  # read=False: from Status's last value (1)
         with mock.patch('volttron.driver.base.driver.publish_wrapper') as publish:
             agent.poll_data(PollSet(tree, [T('Status')]))
-        assert publishes(publish)[f'{DEVICE}/multi'][0] == {'Status': 14, 'Fault': True, 'Run': False}
+        assert publishes(publish)[f'{DEVICE}/multi'][0] == {'Status': 1, 'Fault': False, 'Run': True}
 
     def test_value_of_extracts_bits_without_a_second_register(self, world):
         agent, tree = world
