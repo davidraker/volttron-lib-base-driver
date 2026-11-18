@@ -228,7 +228,7 @@ class DriverAgent:
         if self.scalability_test:  # TODO: Update scalability testing.
             self.scalability_test.poll_starting(self.unique_id)
         try:
-            if not set(poll_set.points.keys()):
+            if not poll_set.points:
                 return False
             started = time.monotonic()
             results, errors = self.get_multiple_points(poll_set.points.keys())
@@ -437,7 +437,43 @@ class DriverAgent:
         errors.update(interface_errors)
         if raw_items:
             self.health.record_write(interface_errors)
+            self._publish_static_writes({topic: value for topic, value in topics_values if topic in written}, results)
         return results, errors
+
+    def _static_points(self, topics) -> list:
+        nodes = []
+        for topic in topics:
+            node = self.equipment_model.get_node(topic)
+            if node is not None and getattr(node, 'data_source', None) is DataSource.STATIC:
+                nodes.append(node)
+        return nodes
+
+    def _publish_static_writes(self, requested: dict, results: dict):
+        """A STATIC point is never polled, so a write is the only time its value changes: record it and publish it."""
+        values = {}
+        for node in self._static_points(requested):
+            reported = results.get(node.identifier)
+            values[node.identifier] = reported if reported is not None else requested[node.identifier]
+        if values:
+            self.publish_push(values, raw=False)
+
+    def publish_static(self, points):
+        """Publish the current values of the STATIC points among ``points``: their configuration (Default Value) or
+        whatever was last written. Called when a device is configured or reconfigured; nothing polls them."""
+        values = {}
+        for node in self._static_points(p.identifier for p in points):
+            value = node.last_value
+            if value is None:                                    # never set: the registry's Default Value, if any
+                try:
+                    value = getattr(self.get_register(node.identifier), 'default_value', None)
+                except DriverInterfaceError:
+                    value = None
+                if value is not None:
+                    node.last_value = value
+            if value is not None:
+                values[node.identifier] = value
+        if values:
+            self.publish_push(values, raw=False)
 
     def revert_point(self, topic, **kwargs):
         self.interface.revert_point(topic, **kwargs)
@@ -459,19 +495,21 @@ class DriverAgent:
             # A method of the interface (or a plugin method bound onto it): bound, so the interface is not passed again.
             return getattr(self.interface, method_name)(topics, *args, **kwargs)
 
-    def publish_push(self, results):
+    def publish_push(self, results, raw: bool = True):
         """Publish values that arrived without a poll (a change of value, an unsolicited response, a served peer's
         write), keyed by full point topic, and record them as the points' last values.
 
         Each topic is checked before anything is published: it must name a point of this remote. Anything else (an
         unknown topic, a device or other non-point node, a point of another remote) is logged and skipped, and one bad
         topic never prevents the rest of the batch from publishing. The proxy processes that push are authenticated,
-        but this keeps a buggy or compromised proxy from setting values on points it does not serve.
+        but this keeps a buggy or compromised proxy from setting values on points it does not serve. ``raw`` False
+        means the values are already engineering values (a static point's) and no transform is applied.
         """
         et = self.equipment_model
         headers = publication_headers()
         results, errors = dict(results), {}
-        self.transforms.apply(results, errors, self._last_value)
+        if raw:
+            self.transforms.apply(results, errors, self._last_value)
         for failed_point, failure_message in errors.items():
             _log.warning(f'{self.unique_id}: no value published for pushed {failed_point}: {failure_message}')
         derived_results, derived_errors = self.transforms.compute_dependents(results, self._last_value)

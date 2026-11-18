@@ -107,8 +107,8 @@ class EquipmentConfig(BaseModel):
     # The polling group (see the platform driver's `groups`). `group` and `Group` are the names of earlier configurations.
     polling_group: Annotated[str | None, empty_str_is(None)] = Field(
         default=None, validation_alias=AliasChoices('polling_group', 'group', 'Group'))
-    # TODO: If this needs to be an int, we may need to use milliseconds someplace.
-    polling_interval: Annotated[int | None, empty_str_is(None)] = Field(default=None, alias='interval')
+    # Seconds; may be fractional. The platform driver schedules in whole milliseconds.
+    polling_interval: Annotated[float | None, empty_str_is(None)] = Field(default=None, alias='interval')
     publish_single_depth: Annotated[bool | None, empty_str_is(None)] = Field(default=None, alias='publish_depth_first_single')
     publish_single_breadth: Annotated[bool | None, empty_str_is(None)] = Field(default=None, alias='publish_breadth_first_single')
     publish_multi_depth: Annotated[bool | None, empty_str_is(None)] = Field(default=None, alias='publish_depth_first_multi')
@@ -123,8 +123,12 @@ class EquipmentConfig(BaseModel):
     @field_validator('polling_interval', mode='before')
     @classmethod
     def _normalize_polling_interval(cls, v):
-        # TODO: This does not match int above, but we may need to convert to ms in calculations.
-        return None if v == '' or v is None else float(v)
+        if v == '' or v is None:
+            return None
+        v = float(v)
+        if v <= 0:
+            raise ValueError('polling_interval must be a positive number of seconds')
+        return v
 
 
 class PointConfig(EquipmentConfig):
